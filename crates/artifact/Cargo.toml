@@ -1,0 +1,16 @@
+[package]
+name = "artifact"
+version = "0.1.0"
+edition = "2021"
+authors = [ "Nikola Jokic <nikola.jokic@bountyhub.org>" ]
+description = "Artifact utility for BountyHub runner"
+license = "MIT"
+readme = "README.md"
+keywords = ["bountyhub", "runner", "artifact", "zip", "result"]
+
+[dependencies]
+uuid = { version = "^1", features = ["v4"] }
+zip = "^2"
+tracing = "^0.1"
+ctx = { path = "../ctx" }
+error-stack = "^0.5"

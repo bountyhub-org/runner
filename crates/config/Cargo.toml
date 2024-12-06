@@ -1,0 +1,18 @@
+[package]
+name = "config"
+version = "0.1.0"
+edition = "2021"
+authors = [ "Nikola Jokic <nikola.jokic@bountyhub.org>" ]
+description = "Configuration utility for BountyHub runner"
+license = "MIT"
+readme = "README.md"
+keywords = ["bountyhub", "runner", "config"]
+
+[dependencies]
+error-stack = "^0.5"
+uuid = { version = "^1", features = ["v4"] }
+url = "^2"
+serde = { version = "^1", features = ["derive"] }
+serde_json = { version = "^1", features = ["std"] }
+hostname = "0.4.0"
+tracing = "^0.1"

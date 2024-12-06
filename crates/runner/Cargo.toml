@@ -1,0 +1,21 @@
+[package]
+name = "runner"
+version = "0.1.0"
+edition = "2021"
+authors = [ "Nikola Jokic <nikola.jokic@bountyhub.org>" ]
+description = "Runner is package used to ask for jobs from the BountyHub platform"
+license = "MIT"
+readme = "README.md"
+keywords = ["bountyhub", "runner", "job"]
+
+[dependencies]
+error-stack = "^0.5"
+tracing = "^0.1"
+uuid = "^1"
+client = { path = "../client" }
+config = { path = "../config" }
+ctx = { path = "../ctx" }
+worker = { path = "../worker" }
+
+[dev-dependencies]
+mockall = "0.13.0"

@@ -1,0 +1,15 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/cli",
+    "crates/client",
+    "crates/config",
+    "crates/ctx",
+    "crates/recoil",
+    "crates/runner",
+    "crates/worker",
+    "crates/templ",
+    "crates/artifact",
+    "crates/streamlog",
+    "crates/jobengine",
+]

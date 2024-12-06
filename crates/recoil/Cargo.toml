@@ -1,0 +1,13 @@
+[package]
+name = "recoil"
+version = "0.1.0"
+edition = "2021"
+resolver = "2"
+description = "Recoil utility for BountyHub runner that provides a retry mechanism"
+license = "MIT"
+readme = "README.md"
+keywords = ["bountyhub", "runner", "recoil"]
+authors = ["Nikola Jokic <nikola.jokic@bountyhub.org>" ]
+
+[dependencies]
+rand = "0.8.5"

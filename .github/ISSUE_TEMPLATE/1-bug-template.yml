@@ -1,0 +1,55 @@
+name: Runner Bug Report
+description: Create a bug report.
+labels: ["bug", "needs triage", "platform"]
+assignees: ["nikola-jokic"]
+body:
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Check the following before submitting a bug report
+      description: |
+        Please check the following before submitting a bug report.
+      options:
+        - label: I have searched the issues of this repository and believe that this is not a duplicate
+          required: true
+        - label: I have read the docs and I'm sure this is a bug
+          required: true
+        - label: This is not a security issue
+          required: true
+        - label: I will make sure sensitive information is not shared in this public repository
+          required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Describe the bug
+      description: A clear and concise description of what the bug is.
+      placeholder: A clear and concise description of what the bug is.
+      render: markdown
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: To Reproduce
+      description: Steps to reproduce the behavior.
+      placeholder: Steps to reproduce the behavior.
+      render: markdown
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: A clear and concise description of what you expected to happen.
+      placeholder: A clear and concise description of what you expected to happen.
+      render: markdown
+    validations:
+      required: true
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots
+      render: markdown
+      description: If applicable, add screenshots to help explain your problem.
+      placeholder: If applicable, add screenshots to help explain your problem.

@@ -1,0 +1,17 @@
+[package]
+name = "jobengine"
+version = "0.1.0"
+edition = "2021"
+author = ["Nikola Jokic <jokicnikola07@gmail.com>"]
+resolver = "2"
+description = "Job engine for evaluating BountyHub job expressions"
+license = "MIT"
+readme = "README.md"
+keywords = ["bountyhub", "job", "engine"]
+
+[dependencies]
+uuid = { version = "^1"}
+serde = { version = "^1", features = ["derive"] }
+serde_json = { version = "^1" }
+cel-interpreter = { version = "^0.9", features = ["chrono", "json", "regex"]}
+error-stack = "^0.5"

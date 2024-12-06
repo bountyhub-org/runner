@@ -1,0 +1,25 @@
+[package]
+name = "cli"
+version = "0.1.0"
+edition = "2021"
+authors = [ "Nikola Jokic <nikola.jokic@bountyhub.org>" ]
+description = "CLI app for BountyHub runner"
+license = "MIT"
+repository = "https://github.com/bountyhub-org/runner"
+readme = "README.md"
+keywords = ["bountyhub", "runner", "cli"]
+
+[dependencies]
+clap = { version = "^4", features = ["derive"] }
+clap_complete = "^4"
+error-stack = "^0.5"
+tracing = "^0.1"
+tracing-subscriber = "^0.3"
+sudoservice = "0.1.0"
+dotenv = "^0.15"
+ctrlc = "^3"
+config = { path = "../config" }
+client = { path = "../client" }
+ctx = { path = "../ctx" }
+runner = { path = "../runner" }
+worker = { path = "../worker" }

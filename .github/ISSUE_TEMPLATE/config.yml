@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Platform Bugs/Features
+    url: https://github.com/bountyhub-org/platform
+    about: Please report any bugs or features you find on the platform here.

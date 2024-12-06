@@ -1,0 +1,12 @@
+[package]
+name = "ctx"
+version = "0.1.0"
+edition = "2021"
+authors = ["Nikola Jokic <jokicnikola07@gmail.com>"]
+resolver = "2"
+description = "Context utility for BountyHub runner"
+license = "MIT"
+readme = "README.md"
+keywords = ["bountyhub", "runner", "context"]
+
+[dependencies]
