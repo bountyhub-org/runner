@@ -255,7 +255,7 @@ impl WorkerClient for WorkerHttpClient {
     #[tracing::instrument(skip(self, token))]
     fn with_token(self, token: String) -> Self {
         Self {
-            token: format!("Bearer {}", token),
+            token: format!("RunnerWorker {}", token),
             ..self
         }
     }

@@ -96,7 +96,7 @@ impl RunnerClient for RunnerHttpClient {
     #[tracing::instrument(skip(token))]
     fn with_token(self, token: String) -> Self {
         Self {
-            token: format!("Bearer {}", token),
+            token: format!("Runner {}", token),
             ..self
         }
     }
@@ -114,8 +114,10 @@ impl RunnerClient for RunnerHttpClient {
 
         let res = recoil.run(|| {
             if ctx.is_done() {
+                tracing::debug!("Cancelled");
                 return State::Fail(Report::new(ClientError).attach_printable("cancelled"));
             }
+            tracing::debug!("Saying hello to the server");
             match self
                 .agent
                 .post(&endpoint)
