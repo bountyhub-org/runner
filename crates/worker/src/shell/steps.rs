@@ -1,9 +1,9 @@
 use super::execution_context::ExecutionContext;
 use artifact::ArtifactBuilder;
 use cel_interpreter::Value as CelValue;
-use client::worker::{
-    JobResolvedStepResponse, StepKind, TimelineRequest, TimelineRequestStepOutcome,
-    TimelineRequestStepState, WorkerClient,
+use client::job::{
+    JobClient, JobResolvedStepResponse, StepKind, StepRef, TimelineRequest,
+    TimelineRequestStepOutcome, TimelineRequestStepState,
 };
 use ctx::{Background, Ctx};
 use error_stack::{Context, Result, ResultExt};
@@ -41,7 +41,7 @@ impl Steps {
         client: &C,
     ) -> Result<(), ExecutionError>
     where
-        C: WorkerClient,
+        C: JobClient,
     {
         for step in self.steps.iter() {
             tracing::debug!("Step: {:?}", step);
@@ -91,7 +91,7 @@ impl Step {
         client: &C,
     ) -> Result<(), StepError>
     where
-        C: WorkerClient,
+        C: JobClient,
     {
         let state = self.pre_run_step_state(ctx.clone(), execution_ctx);
         tracing::info!("Pre run step({}) state: {}", self.id, state);
@@ -108,13 +108,16 @@ impl Step {
             return Ok(());
         }
 
-        let streamer = streamlog::Stream {
-            client: client.clone(),
+        let step_ref = StepRef {
             step_id: self.id,
             job_id: execution_ctx.job_id(),
             project_id: execution_ctx.project_id(),
             workflow_id: execution_ctx.workflow_id(),
             revision_id: execution_ctx.revision_id(),
+        };
+        let streamer = streamlog::Stream {
+            client: client.clone(),
+            step_ref,
         };
 
         let stream_handle = {
@@ -155,7 +158,7 @@ impl Step {
         log_tx: mpsc::Sender<LogLine>,
     ) -> TimelineRequestStepState
     where
-        C: WorkerClient,
+        C: JobClient,
     {
         tracing::info!("Running step: {}", self.id);
         match &self.inner {
@@ -333,7 +336,7 @@ impl CommandStep {
         let mut cmd = Command::new(command);
         cmd.args(shell_split);
         cmd.current_dir(execution_ctx.workdir());
-        cmd.envs(execution_ctx.envs());
+        cmd.envs(execution_ctx.envs().iter().cloned());
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());
 
@@ -521,7 +524,7 @@ impl UploadStep {
         log_tx: mpsc::Sender<LogLine>,
     ) -> TimelineRequestStepState
     where
-        C: WorkerClient,
+        C: JobClient,
     {
         let artifact_builder = ArtifactBuilder {
             uploads: self.uploads.clone(),
@@ -612,9 +615,10 @@ impl Context for ExecutionError {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use client::worker::{MockWorkerClient, StepKind, TimelineRequestStepState};
+    use client::job::{MockJobClient, StepKind, TimelineRequestStepState};
     use jobengine::{ProjectMeta, WorkflowMeta, WorkflowRevisionMeta};
     use std::fs;
+    use std::sync::Arc;
     use std::{collections::BTreeMap, env};
     use uuid::Uuid;
 
@@ -727,7 +731,7 @@ mod tests {
         };
 
         let id = step.id;
-        let mut main_client = MockWorkerClient::new();
+        let mut main_client = MockJobClient::new();
         main_client
             .expect_post_step_timeline()
             .returning(move |_, timeline| {
@@ -757,11 +761,11 @@ mod tests {
 
         main_client
             .expect_clone()
-            .returning(MockWorkerClient::new)
+            .returning(MockJobClient::new)
             .times(2);
 
         let mut execution_ctx =
-            ExecutionContext::new(new_test_workdir(), vec![], new_test_job_config());
+            ExecutionContext::new(new_test_workdir(), Arc::new(vec![]), new_test_job_config());
 
         let result = step.run(ctx::background(), &mut execution_ctx, &main_client);
         assert!(result.is_ok(), "{:?}", result);
@@ -778,7 +782,7 @@ mod tests {
         };
         fs::create_dir_all(&workdir).expect("Failed to create workdir");
 
-        let mut main_client = MockWorkerClient::new();
+        let mut main_client = MockJobClient::new();
         let id = step.id;
         main_client
             .expect_post_step_timeline()
@@ -809,10 +813,10 @@ mod tests {
 
         main_client
             .expect_clone()
-            .returning(MockWorkerClient::new)
+            .returning(MockJobClient::new)
             .times(2);
 
-        let mut execution_ctx = ExecutionContext::new(workdir, vec![], job_execution_ctx);
+        let mut execution_ctx = ExecutionContext::new(workdir, Arc::new(vec![]), job_execution_ctx);
 
         let result = step.run(ctx::background(), &mut execution_ctx, &main_client);
         assert!(result.is_ok(), "{:?}", result);
@@ -828,7 +832,7 @@ mod tests {
         let workdir = new_test_workdir();
         fs::create_dir_all(&workdir).expect("Failed to create workdir");
         let job_execution_ctx = new_test_job_config();
-        let mut execution_ctx = ExecutionContext::new(workdir, vec![], job_execution_ctx);
+        let mut execution_ctx = ExecutionContext::new(workdir, Arc::new(vec![]), job_execution_ctx);
 
         let (tx, rx) = mpsc::channel();
         let step_id = Uuid::now_v7();
@@ -856,7 +860,7 @@ mod tests {
         let job_execution_ctx = new_test_job_config();
         let mut execution_ctx = ExecutionContext::new(
             workdir,
-            vec![("HELLO_ENV".to_string(), "Hello, World!".to_string())],
+            Arc::new(vec![("HELLO_ENV".to_string(), "Hello, World!".to_string())]),
             job_execution_ctx,
         );
 
@@ -884,7 +888,7 @@ mod tests {
         let workdir = new_test_workdir();
         fs::create_dir_all(&workdir).expect("Failed to create workdir");
         let job_execution_ctx = new_test_job_config();
-        let mut execution_ctx = ExecutionContext::new(workdir, vec![], job_execution_ctx);
+        let mut execution_ctx = ExecutionContext::new(workdir, Arc::new(vec![]), job_execution_ctx);
 
         let step_id = Uuid::now_v7();
         let (tx, rx) = mpsc::channel();
@@ -925,7 +929,7 @@ mod tests {
         let workdir = new_test_workdir();
         fs::create_dir_all(&workdir).expect("Failed to create workdir");
         let job_config = new_test_job_config();
-        let mut execution_ctx = ExecutionContext::new(workdir, vec![], job_config);
+        let mut execution_ctx = ExecutionContext::new(workdir, Arc::new(vec![]), job_config);
 
         let background = ctx::background().with_cancel();
         let ctx = background.with_cancel();

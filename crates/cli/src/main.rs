@@ -1,6 +1,5 @@
 use clap::Parser;
 use cli::Cli;
-use client::{HttpClientBuilder, HttpClientBuilderConfig};
 use std::process::exit;
 use tracing::Level;
 use tracing_subscriber::FmtSubscriber;
@@ -53,11 +52,7 @@ fn main() {
     })
     .expect("Error setting Ctrl-C handler");
 
-    let client_builder = HttpClientBuilder::new(HttpClientBuilderConfig {
-        user_agent: format!("runner/{} (CLI)", env!("CARGO_PKG_VERSION")),
-    });
-
-    if let Err(err) = app.run(run_ctx, client_builder) {
+    if let Err(err) = app.run(run_ctx) {
         tracing::error!("Error: {:?}", err);
         exit(1);
     }

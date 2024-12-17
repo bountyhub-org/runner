@@ -1,19 +1,12 @@
-use crate::error::ClientError;
-use crate::error::FatalError;
-use crate::error::RetryableError;
+use crate::error::{ClientError, FatalError, RetryableError};
 use ctx::{Background, Ctx};
 use error_stack::{Report, Result, ResultExt};
 #[cfg(feature = "mockall")]
 use mockall::mock;
-use recoil::Interval;
-use recoil::Recoil;
-use recoil::State;
+use recoil::{Interval, Recoil, State};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
-use ureq::Agent;
 use ureq::Error as UreqError;
-
-pub const DEFAULT_HUB_URL: &str = "https://bountyhub.org";
 
 #[derive(Serialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -31,9 +24,7 @@ pub struct RegistrationResponse {
     pub fluxy_url: String,
 }
 
-pub trait HubClient: Send + Sync + Clone {
-    fn with_url(self, url: String) -> Self;
-
+pub trait RegistrationClient: Send + Sync + Clone {
     fn register(
         &self,
         ctx: Ctx<Background>,
@@ -43,15 +34,13 @@ pub trait HubClient: Send + Sync + Clone {
 
 #[cfg(feature = "mockall")]
 mock! {
-    pub HubClient {}
+    pub RegistrationClient {}
 
-    impl Clone for HubClient {
+    impl Clone for RegistrationClient {
         fn clone(&self) -> Self;
     }
 
-    impl HubClient for HubClient {
-        fn with_url(self, url: String) -> Self;
-
+    impl RegistrationClient for RegistrationClient {
         fn register(
             &self,
             ctx: Ctx<Background>,
@@ -61,20 +50,19 @@ mock! {
 }
 
 #[derive(Debug, Clone)]
-pub struct HubHttpClient {
+pub struct HttpRegistrationClient {
+    client: ureq::Agent,
     url: String,
-    agent: Agent,
     user_agent: String,
     recoil: Recoil,
 }
 
-impl HubHttpClient {
-    #[tracing::instrument]
-    pub fn new(user_agent: String, agent: Agent) -> Self {
+impl HttpRegistrationClient {
+    pub fn new(client: ureq::Agent, url: &str, user_agent: &str) -> Self {
         Self {
-            agent,
-            url: DEFAULT_HUB_URL.to_string(),
-            user_agent,
+            client,
+            url: url.to_string(),
+            user_agent: user_agent.to_string(),
             recoil: Recoil {
                 interval: Interval {
                     duration: Duration::from_secs(1),
@@ -87,13 +75,8 @@ impl HubHttpClient {
         }
     }
 }
-impl HubClient for HubHttpClient {
-    #[tracing::instrument]
-    fn with_url(self, url: String) -> Self {
-        Self { url, ..self }
-    }
 
-    #[tracing::instrument(skip(ctx))]
+impl RegistrationClient for HttpRegistrationClient {
     fn register(
         &self,
         ctx: Ctx<Background>,
@@ -107,7 +90,7 @@ impl HubClient for HubHttpClient {
                 return State::Fail(Report::new(ClientError).attach_printable("cancelled"));
             }
             match self
-                .agent
+                .client
                 .post(&endpoint)
                 .set("Content-Type", "application/json")
                 .set("User-Agent", &self.user_agent)
@@ -148,10 +131,10 @@ impl HubClient for HubHttpClient {
 
                 Ok(reg)
             }
-            Err(recoil::recoil::Error::MaxRetriesReached) => Err(Report::new(RetryableError)
+            Err(recoil::Error::MaxRetriesReached) => Err(Report::new(RetryableError)
                 .attach_printable("Max retries reached")
                 .change_context(ClientError)),
-            Err(recoil::recoil::Error::Custom(e)) => Err(e),
+            Err(recoil::Error::Custom(e)) => Err(e),
         }
     }
 }

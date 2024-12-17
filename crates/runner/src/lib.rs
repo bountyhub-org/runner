@@ -1,5 +1,5 @@
 use client::error::{ClientError, FatalError};
-use client::runner::{PollResponse, RunnerClient};
+use client::runner::{JobAcquiredResponse, RunnerClient};
 use config::Config;
 use ctx::{Background, Ctx};
 use error_stack::{Context, Report, Result, ResultExt};
@@ -7,6 +7,7 @@ use error_stack::{Context, Report, Result, ResultExt};
 use mockall::automock;
 use std::collections::BTreeMap;
 use std::sync::mpsc::{self, Receiver, SyncSender};
+use std::sync::{Arc, RwLock};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 use std::{fmt, fs};
@@ -14,14 +15,13 @@ use uuid::Uuid;
 use worker::Worker;
 
 #[derive(Debug, Clone)]
-pub struct Runner<RC, W>
+pub struct Runner<WB, W>
 where
-    RC: RunnerClient,
+    WB: WorkerBuilder<Worker = W>,
     W: Worker,
 {
-    config: Config,
-    runner_client: RC,
-    base_worker: W,
+    config: Arc<RwLock<Config>>,
+    worker_builder: WB,
 }
 
 #[derive(Debug, Clone)]
@@ -41,7 +41,7 @@ where
     }
 
     #[tracing::instrument(skip(self))]
-    fn hello(&self, ctx: Ctx<Background>) -> Result<(), RunnerError> {
+    fn hello(&mut self, ctx: Ctx<Background>) -> Result<(), RunnerError> {
         self.runner_client
             .hello(ctx.to_background())
             .change_context(RunnerError)
@@ -65,28 +65,30 @@ where
 }
 
 #[cfg_attr(test, automock)]
-impl<RC, W> Runner<RC, W>
+impl<WB, W> Runner<WB, W>
 where
-    RC: RunnerClient + 'static,
+    WB: WorkerBuilder<Worker = W> + 'static,
     W: Worker + 'static,
 {
-    pub fn new(config: Config, runner_client: RC, base_worker: W) -> Self {
+    pub fn new(config: Arc<RwLock<Config>>, worker_builder: WB) -> Self {
         Self {
             config,
-            runner_client,
-            base_worker,
+            worker_builder,
         }
     }
 
-    #[tracing::instrument(skip(self, ctx))]
-    pub fn run(&mut self, ctx: Ctx<Background>) -> Result<(), RunnerError> {
+    #[tracing::instrument(skip(self, ctx, client))]
+    pub fn run<C>(&self, ctx: Ctx<Background>, client: C) -> Result<(), RunnerError>
+    where
+        C: RunnerClient + 'static,
+    {
         tracing::info!("Initializing working directory");
-        fs::create_dir_all(&self.config.workdir)
+        fs::create_dir_all(&self.config.read().unwrap().workdir)
             .change_context(RunnerError)
             .attach_printable("failed to create workdir")?;
 
         tracing::info!("Contacting invoker service");
-        let greeting = RunnerGreeting::new(self.runner_client.clone());
+        let mut greeting = RunnerGreeting::new(client.clone());
         greeting
             .hello(ctx.clone())
             .change_context(RunnerError)
@@ -94,7 +96,7 @@ where
 
         tracing::info!("Listening for jobs");
 
-        let channel_cap = self.config.capacity as usize;
+        let channel_cap = self.config.read().unwrap().capacity as usize;
         let (worker_started_tx, worker_started_rx) =
             mpsc::sync_channel::<Vec<(Uuid, JoinHandle<()>)>>(channel_cap);
         let (worker_finished_tx, worker_finished_rx) = mpsc::sync_channel::<Uuid>(channel_cap);
@@ -146,14 +148,15 @@ where
             }
         });
 
-        let (poll_tx, poll_rx) = mpsc::sync_channel::<Result<Vec<PollResponse>, ClientError>>(1);
-        let client = self.runner_client.clone();
+        let (poll_tx, poll_rx) =
+            mpsc::sync_channel::<Result<Vec<JobAcquiredResponse>, ClientError>>(1);
+        let poll_client = client.clone();
         let poll_ctx = ctx.to_background();
-        let capacity = self.config.capacity;
+        let capacity = self.config.read().unwrap().capacity;
         let _poll_handle = thread::spawn(move || {
             poll_loop(
                 poll_ctx.clone(),
-                client.clone(),
+                poll_client,
                 capacity,
                 poll_tx,
                 worker_finished_rx,
@@ -189,10 +192,10 @@ where
                 .map(|job| {
                     let id = job.id;
                     let ctx = ctx.to_background();
-                    let worker = self.base_worker.clone();
-                    let runner_client = self.runner_client.clone();
+                    let worker = self.worker_builder.build(job);
+                    let runner_client = client.clone();
                     let handle = thread::spawn(move || {
-                        if let Err(err) = worker.run(ctx.clone(), job) {
+                        if let Err(err) = worker.run(ctx.clone()) {
                             tracing::error!("Worker failed: {:?}", err);
                             return;
                         }
@@ -219,7 +222,7 @@ fn poll_loop<RC>(
     ctx: Ctx<Background>,
     client: RC,
     mut capacity: u32,
-    poll_tx: SyncSender<Result<Vec<PollResponse>, ClientError>>,
+    poll_tx: SyncSender<Result<Vec<JobAcquiredResponse>, ClientError>>,
     worker_finished_rx: Receiver<Uuid>,
 ) where
     RC: RunnerClient,
@@ -269,6 +272,11 @@ fn poll_loop<RC>(
             }
         }
     }
+}
+
+pub trait WorkerBuilder {
+    type Worker: worker::Worker;
+    fn build(&self, job: JobAcquiredResponse) -> Self::Worker;
 }
 
 #[derive(Debug)]

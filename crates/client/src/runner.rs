@@ -1,15 +1,19 @@
+use crate::pool::ClientPool;
+
 use super::error::{ClientError, FatalError, RetryableError};
+use config::Config;
 use ctx::{Background, Ctx};
 use error_stack::{Report, Result, ResultExt};
 #[cfg(feature = "mockall")]
 use mockall::mock;
 use recoil::{Interval, Recoil, State};
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
-use ureq::Error as UreqError;
+use std::{
+    sync::{Arc, RwLock},
+    time::Duration,
+};
+use ureq::{Error as UreqError, Response};
 use uuid::Uuid;
-
-pub const DEFAULT_INVOKER_URL: &str = "https://invoker.bountyhub.org";
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -19,7 +23,7 @@ struct PollRequest {
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
-pub struct PollResponse {
+pub struct JobAcquiredResponse {
     pub id: Uuid,
     #[serde(skip_serializing)]
     pub token: String,
@@ -32,15 +36,13 @@ struct CompleteRequest {
 }
 
 pub trait RunnerClient: Send + Sync + Clone {
-    fn with_token(self, id: String) -> Self;
-    fn with_url(self, url: String) -> Self;
     fn hello(&self, ctx: Ctx<Background>) -> Result<(), ClientError>;
     fn goodbye(&self, ctx: Ctx<Background>) -> Result<(), ClientError>;
     fn request(
         &self,
         ctx: Ctx<Background>,
         capacity: u32,
-    ) -> Result<Vec<PollResponse>, ClientError>;
+    ) -> Result<Vec<JobAcquiredResponse>, ClientError>;
     fn complete(&self, ctx: Ctx<Background>, id: Uuid) -> Result<(), ClientError>;
 }
 
@@ -53,32 +55,28 @@ mock! {
     }
 
     impl RunnerClient for RunnerClient {
-        fn with_token(self, id: String) -> Self;
-        fn with_url(self, url: String) -> Self;
         fn hello(&self, ctx: Ctx<Background>) -> Result<(), ClientError>;
         fn goodbye(&self, ctx: Ctx<Background>) -> Result<(), ClientError>;
-        fn request(&self, ctx: Ctx<Background>, capacity: u32) -> Result<Vec<PollResponse>, ClientError>;
+        fn request(&self, ctx: Ctx<Background>, capacity: u32) -> Result<Vec<JobAcquiredResponse>, ClientError>;
         fn complete(&self, ctx: Ctx<Background>, id: Uuid) -> Result<(), ClientError>;
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct RunnerHttpClient {
-    url: String,
-    token: String,
-    user_agent: String,
-    agent: ureq::Agent,
+pub struct HttpRunnerClient {
+    user_agent: Arc<String>,
+    pool: ClientPool,
     recoil: Recoil,
+    config: Arc<RwLock<Config>>,
 }
 
-impl RunnerHttpClient {
+impl HttpRunnerClient {
     #[tracing::instrument]
-    pub fn new(user_agent: String, agent: ureq::Agent) -> Self {
+    pub fn new(config: Arc<RwLock<Config>>, pool: ClientPool, user_agent: Arc<String>) -> Self {
         Self {
-            agent,
-            url: DEFAULT_INVOKER_URL.to_string(),
+            config,
+            pool,
             user_agent,
-            token: String::new(),
             recoil: Recoil {
                 interval: Interval {
                     duration: Duration::from_secs(1),
@@ -92,36 +90,30 @@ impl RunnerHttpClient {
     }
 }
 
-impl RunnerClient for RunnerHttpClient {
-    #[tracing::instrument(skip(token))]
-    fn with_token(self, token: String) -> Self {
-        Self {
-            token: format!("Runner {}", token),
-            ..self
-        }
-    }
-
-    #[tracing::instrument]
-    fn with_url(self, url: String) -> Self {
-        Self { url, ..self }
-    }
-
+impl RunnerClient for HttpRunnerClient {
     #[tracing::instrument(skip(self, ctx))]
     fn hello(&self, ctx: Ctx<Background>) -> Result<(), ClientError> {
-        let endpoint = format!("{}/api/v0/runners/hello", self.url);
+        let (endpoint, token) = {
+            let cfg = self.config.read().unwrap();
+
+            (
+                format!("{}/api/v0/runners/hello", cfg.invoker_url),
+                format!("Runner {}", cfg.token),
+            )
+        };
+
+        let client = self.pool.default_client();
         let retry = || ctx.is_done();
         let mut recoil = self.recoil.clone();
-
         let res = recoil.run(|| {
             if ctx.is_done() {
                 tracing::debug!("Cancelled");
                 return State::Fail(Report::new(ClientError).attach_printable("cancelled"));
             }
             tracing::debug!("Saying hello to the server");
-            match self
-                .agent
+            match client
                 .post(&endpoint)
-                .set("Authorization", &self.token)
+                .set("Authorization", &token)
                 .set("User-Agent", &self.user_agent)
                 .call()
             {
@@ -145,7 +137,10 @@ impl RunnerClient for RunnerHttpClient {
         });
 
         match res {
-            Ok(_) => Ok(()),
+            Ok(res) => {
+                self.update_token(&res);
+                Ok(())
+            }
             Err(recoil::recoil::Error::MaxRetriesReached) => Err(Report::new(RetryableError)
                 .attach_printable("Max retries reached")
                 .change_context(ClientError)),
@@ -155,18 +150,24 @@ impl RunnerClient for RunnerHttpClient {
 
     #[tracing::instrument(skip(self, ctx))]
     fn goodbye(&self, ctx: Ctx<Background>) -> Result<(), ClientError> {
-        let endpoint = format!("{}/api/v0/runners/goodbye", self.url);
-        let retry = || ctx.is_done();
-        let mut recoil = self.recoil.clone();
+        let (endpoint, token) = {
+            let cfg = self.config.read().unwrap();
 
+            (
+                format!("{}/api/v0/runners/goodbye", cfg.invoker_url),
+                format!("Runner {}", cfg.token),
+            )
+        };
+        let retry = || ctx.is_done();
+        let client = self.pool.default_client();
+        let mut recoil = self.recoil.clone();
         let res = recoil.run(|| {
             if ctx.is_done() {
                 return State::Fail(Report::new(ClientError).attach_printable("cancelled"));
             }
-            match self
-                .agent
+            match client
                 .post(&endpoint)
-                .set("Authorization", &self.token)
+                .set("Authorization", &token)
                 .set("User-Agent", &self.user_agent)
                 .call()
             {
@@ -190,7 +191,10 @@ impl RunnerClient for RunnerHttpClient {
         });
 
         match res {
-            Ok(_) => Ok(()),
+            Ok(res) => {
+                self.update_token(&res);
+                Ok(())
+            }
             Err(recoil::recoil::Error::MaxRetriesReached) => Err(Report::new(RetryableError)
                 .attach_printable("Max retries reached")
                 .change_context(ClientError)),
@@ -203,19 +207,25 @@ impl RunnerClient for RunnerHttpClient {
         &self,
         ctx: Ctx<Background>,
         capacity: u32,
-    ) -> Result<Vec<PollResponse>, ClientError> {
-        let endpoint = format!("{}/api/v0/jobs/request", self.url);
+    ) -> Result<Vec<JobAcquiredResponse>, ClientError> {
+        let (endpoint, token) = {
+            let cfg = self.config.read().unwrap();
+            (
+                format!("{}/api/v0/jobs/request", cfg.invoker_url),
+                format!("Runner {}", cfg.token),
+            )
+        };
         let retry = || ctx.is_done();
         let mut recoil = self.recoil.clone();
 
+        let client = self.pool.long_poll_client();
         let res = recoil.run(|| {
             if ctx.is_done() {
                 return State::Fail(Report::new(ClientError).attach_printable("cancelled"));
             }
-            match self
-                .agent
+            match client
                 .post(&endpoint)
-                .set("Authorization", &self.token)
+                .set("Authorization", &token)
                 .set("User-Agent", &self.user_agent)
                 .set("Content-Type", "application/json")
                 .send_json(ureq::json!(PollRequest { capacity }))
@@ -241,7 +251,8 @@ impl RunnerClient for RunnerHttpClient {
 
         match res {
             Ok(res) => {
-                let res: Vec<PollResponse> = res
+                self.update_token(&res);
+                let res: Vec<JobAcquiredResponse> = res
                     .into_json()
                     .change_context(ClientError)
                     .attach_printable("failed to read list of poll responses")?;
@@ -256,19 +267,25 @@ impl RunnerClient for RunnerHttpClient {
 
     #[tracing::instrument(skip(self, ctx))]
     fn complete(&self, ctx: Ctx<Background>, job_id: Uuid) -> Result<(), ClientError> {
-        let endpoint = format!("{}/api/v0/jobs/complete", self.url);
+        let (endpoint, token) = {
+            let cfg = self.config.read().unwrap();
+            (
+                format!("{}/api/v0/jobs/complete", cfg.invoker_url),
+                format!("Runner {}", cfg.token),
+            )
+        };
         let retry = || ctx.is_done();
         let mut recoil = self.recoil.clone();
 
+        let client = self.pool.default_client();
         let res = recoil.run(|| {
             if ctx.is_done() {
                 return State::Fail(Report::new(ClientError).attach_printable("cancelled"));
             }
 
-            match self
-                .agent
+            match client
                 .post(&endpoint)
-                .set("Authorization", &self.token)
+                .set("Authorization", &token)
                 .set("User-Agent", &self.user_agent)
                 .set("Content-Type", "application/json")
                 .send_json(ureq::json!(CompleteRequest { job_id }))
@@ -297,11 +314,25 @@ impl RunnerClient for RunnerHttpClient {
         });
 
         match res {
-            Ok(_) => Ok(()),
+            Ok(res) => {
+                self.update_token(&res);
+                Ok(())
+            }
             Err(recoil::recoil::Error::MaxRetriesReached) => Err(Report::new(RetryableError)
                 .attach_printable("Max retries reached")
                 .change_context(ClientError)),
             Err(recoil::recoil::Error::Custom(e)) => Err(e),
         }
+    }
+}
+
+impl HttpRunnerClient {
+    #[tracing::instrument]
+    fn update_token(&self, resp: &Response) {
+        if let Some(token) = resp.header("X-Authorization-Refresh") {
+            let mut cfg = self.config.write().unwrap();
+            cfg.token = token.to_string();
+            cfg.write().unwrap();
+        };
     }
 }

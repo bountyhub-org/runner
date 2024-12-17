@@ -1,4 +1,3 @@
-use client::runner::PollResponse;
 use ctx::{Background, Ctx};
 use error_stack::Result;
 
@@ -8,5 +7,5 @@ pub mod shell;
 use error::WorkerError;
 
 pub trait Worker: Clone + Send + Sync {
-    fn run(self, ctx: Ctx<Background>, job: PollResponse) -> Result<(), WorkerError>;
+    fn run(self, ctx: Ctx<Background>) -> Result<(), WorkerError>;
 }

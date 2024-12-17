@@ -11,6 +11,7 @@ pub const RUNNER_VERSION: &str = env!("CARGO_PKG_VERSION");
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Config {
     pub token: String,
+    pub hub_url: String,
     pub invoker_url: String,
     pub fluxy_url: String,
     pub name: String,
@@ -22,6 +23,7 @@ impl Config {
     #[tracing::instrument]
     pub fn validate(&self) -> Result<(), ValidationError> {
         validate_token(&self.token).attach_printable("Token validation error")?;
+        validate_url(&self.hub_url).attach_printable("URL validation error")?;
         validate_url(&self.invoker_url).attach_printable("URL validation error")?;
         validate_url(&self.fluxy_url).attach_printable("URL validation error")?;
         validate_name(&self.name).attach_printable("Name validation error")?;
@@ -31,7 +33,7 @@ impl Config {
     }
 
     #[tracing::instrument]
-    pub fn write_config(&self) -> Result<(), ConfigurationError> {
+    pub fn write(&self) -> Result<(), ConfigurationError> {
         let mut file = fs::OpenOptions::new()
             .write(true)
             .create(true)
@@ -52,7 +54,7 @@ impl Config {
     }
 
     #[tracing::instrument]
-    pub fn read_config() -> Result<Config, ConfigurationError> {
+    pub fn read() -> Result<Config, ConfigurationError> {
         let mut file = fs::OpenOptions::new()
             .read(true)
             .open(CONFIG_FILE)
