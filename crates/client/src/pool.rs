@@ -71,7 +71,7 @@ impl ClientPool {
     }
 
     pub fn stream_client(&self) -> ureq::Agent {
-        self.inner.default_client.clone()
+        self.inner.stream_client.clone()
     }
 }
 
