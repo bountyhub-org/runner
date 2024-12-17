@@ -1,19 +1,14 @@
-use client::worker::WorkerClient;
+use client::job::{JobClient, StepRef};
 use ctx::{Background, Ctx};
 use std::{io::Write, sync::mpsc::Receiver, thread};
 use time::OffsetDateTime;
-use uuid::Uuid;
 
 pub struct Stream<C>
 where
-    C: WorkerClient,
+    C: JobClient,
 {
     pub client: C,
-    pub step_id: Uuid,
-    pub job_id: Uuid,
-    pub project_id: Uuid,
-    pub workflow_id: Uuid,
-    pub revision_id: Uuid,
+    pub step_ref: StepRef,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -31,7 +26,7 @@ pub struct LogLine {
 
 impl<C> Stream<C>
 where
-    C: WorkerClient,
+    C: JobClient,
 {
     #[tracing::instrument(skip(self, ctx, rx))]
     pub fn stream(&self, ctx: Ctx<Background>, rx: Receiver<LogLine>) {
@@ -56,15 +51,7 @@ where
         });
 
         self.client
-            .stream_job_step_log(
-                ctx,
-                self.project_id,
-                self.workflow_id,
-                self.revision_id,
-                self.job_id,
-                self.step_id,
-                &mut reader,
-            )
+            .stream_job_step_log(ctx, &self.step_ref, &mut reader)
             .unwrap_or_else(|err| tracing::error!("Error streaming job log: {}", err));
 
         handle.join().unwrap();

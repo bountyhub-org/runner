@@ -1,6 +1,7 @@
 use super::error::ClientError;
-use crate::error::RetryableError;
+use crate::{error::RetryableError, pool::ClientPool};
 use cel_interpreter::objects::Value;
+use config::Config;
 use ctx::{Background, Ctx};
 use error_stack::{Report, Result, ResultExt};
 use jobengine::{JobMeta, ProjectMeta, WorkflowMeta, WorkflowRevisionMeta};
@@ -10,12 +11,15 @@ use pipe::PipeReader;
 use recoil::{Interval, Recoil, State};
 use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
-use std::{collections::BTreeMap, fmt, fs::File, time::Duration};
+use std::{
+    collections::BTreeMap,
+    fmt,
+    fs::File,
+    sync::{Arc, RwLock},
+    time::Duration,
+};
 use ureq::Error as UreqError;
 use uuid::Uuid;
-
-pub const DEFAULT_INVOKER_URL: &str = "https://invoker.bountyhub.org";
-pub const DEFAULT_FLUXY_URL: &str = "https://fluxy.bountyhub.org";
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct JobResolvedResponse {
@@ -146,11 +150,8 @@ pub struct JobUploadRequest {
     size: u64,
 }
 
-pub trait WorkerClient: Send + Sync + Clone + 'static {
-    fn with_invoker_url(self, url: String) -> Self;
-    fn with_fluxy_url(self, fluxy_url: String) -> Self;
-    fn with_token(self, token: String) -> Self;
-    fn resolve_job(&self, ctx: Ctx<Background>) -> Result<JobResolvedResponse, ClientError>;
+pub trait JobClient: Send + Sync + Clone + 'static {
+    fn resolve(&self, ctx: Ctx<Background>) -> Result<JobResolvedResponse, ClientError>;
     fn post_step_timeline(
         &self,
         ctx: Ctx<Background>,
@@ -159,11 +160,7 @@ pub trait WorkerClient: Send + Sync + Clone + 'static {
     fn stream_job_step_log(
         &self,
         ctx: Ctx<Background>,
-        project_id: Uuid,
-        workflow_id: Uuid,
-        revision_id: Uuid,
-        job_id: Uuid,
-        step_id: Uuid,
+        step_ref: &StepRef,
         reader: &mut PipeReader,
     ) -> Result<(), ClientError>;
     fn upload_job_artifact(
@@ -177,28 +174,30 @@ pub trait WorkerClient: Send + Sync + Clone + 'static {
     ) -> Result<(), ClientError>;
 }
 
+#[derive(Debug, Clone)]
+pub struct StepRef {
+    pub project_id: Uuid,
+    pub workflow_id: Uuid,
+    pub revision_id: Uuid,
+    pub job_id: Uuid,
+    pub step_id: Uuid,
+}
+
 #[cfg(feature = "mockall")]
 mock! {
-    pub WorkerClient {}
+    pub JobClient {}
 
-    impl Clone for WorkerClient {
+    impl Clone for JobClient {
         fn clone(&self) -> Self;
     }
 
-    impl WorkerClient for WorkerClient {
-        fn with_invoker_url(self, url: String) -> Self;
-        fn with_fluxy_url(self, fluxy_url: String) -> Self;
-        fn with_token(self, token: String) -> Self;
-        fn resolve_job(&self, ctx: Ctx<Background>) -> Result<JobResolvedResponse, ClientError>;
+    impl JobClient for JobClient {
+        fn resolve(&self, ctx: Ctx<Background>) -> Result<JobResolvedResponse, ClientError>;
         fn post_step_timeline(&self, ctx: Ctx<Background>, timeline: &TimelineRequest) -> Result<(), ClientError>;
         fn stream_job_step_log(
             &self,
             ctx: Ctx<Background>,
-            project_id: Uuid,
-            workflow_id: Uuid,
-            revision_id: Uuid,
-            job_id: Uuid,
-            step_id: Uuid,
+            step_ref: &StepRef,
             reader: &mut PipeReader,
         ) -> Result<(), ClientError>;
         fn upload_job_artifact(&self, ctx: Ctx<Background>, project_id: Uuid, workflow_id: Uuid, revision_id: Uuid, job_id: Uuid, file: File) -> Result<(), ClientError>;
@@ -207,24 +206,27 @@ mock! {
 }
 
 #[derive(Debug, Clone)]
-pub struct WorkerHttpClient {
-    invoker_url: String,
-    fluxy_url: String,
+pub struct HttpJobClient {
     token: String,
-    user_agent: String,
-    agent: ureq::Agent,
+    user_agent: Arc<String>,
     recoil: Recoil,
+    pool: ClientPool,
+    config: Arc<RwLock<Config>>,
 }
 
-impl WorkerHttpClient {
+impl HttpJobClient {
     #[tracing::instrument]
-    pub fn new(user_agent: String, agent: ureq::Agent) -> Self {
+    pub fn new(
+        config: Arc<RwLock<Config>>,
+        pool: ClientPool,
+        token: &str,
+        user_agent: Arc<String>,
+    ) -> Self {
         Self {
-            agent,
-            invoker_url: DEFAULT_INVOKER_URL.to_string(),
-            fluxy_url: DEFAULT_FLUXY_URL.to_string(),
+            config,
+            pool,
+            token: format!("RunnerWorker {}", token),
             user_agent,
-            token: String::new(),
             recoil: Recoil {
                 interval: Interval {
                     duration: Duration::from_secs(1),
@@ -238,41 +240,22 @@ impl WorkerHttpClient {
     }
 }
 
-impl WorkerClient for WorkerHttpClient {
-    #[tracing::instrument(skip(self))]
-    fn with_invoker_url(self, invoker_url: String) -> Self {
-        Self {
-            invoker_url,
-            ..self
-        }
-    }
-
-    #[tracing::instrument(skip(self))]
-    fn with_fluxy_url(self, fluxy_url: String) -> Self {
-        Self { fluxy_url, ..self }
-    }
-
-    #[tracing::instrument(skip(self, token))]
-    fn with_token(self, token: String) -> Self {
-        Self {
-            token: format!("RunnerWorker {}", token),
-            ..self
-        }
-    }
-
+impl JobClient for HttpJobClient {
     #[tracing::instrument(skip(self, ctx))]
-    fn resolve_job(&self, ctx: Ctx<Background>) -> Result<JobResolvedResponse, ClientError> {
-        let endpoint = format!("{}/api/v0/jobs/resolve", self.invoker_url);
+    fn resolve(&self, ctx: Ctx<Background>) -> Result<JobResolvedResponse, ClientError> {
+        let endpoint = {
+            let config = self.config.read().unwrap();
+            format!("{}/api/v0/jobs/resolve", config.invoker_url)
+        };
+        let client = self.pool.default_client();
         let retry = || ctx.is_done();
         let mut recoil = self.recoil.clone();
-
         let res = recoil.run(|| {
             if ctx.is_done() {
                 return State::Fail(Report::new(ClientError).attach_printable("cancelled"));
             }
 
-            match self
-                .agent
+            match client
                 .post(&endpoint)
                 .set("Authorization", &self.token)
                 .set("User-Agent", &self.user_agent)
@@ -314,7 +297,11 @@ impl WorkerClient for WorkerHttpClient {
         ctx: Ctx<Background>,
         timeline: &TimelineRequest,
     ) -> Result<(), ClientError> {
-        let endpoint = format!("{}/api/v0/jobs/timeline", self.invoker_url);
+        let endpoint = {
+            let config = self.config.read().unwrap();
+            format!("{}/api/v0/jobs/timeline", config.invoker_url)
+        };
+        let client = self.pool.default_client();
         let retry = || ctx.is_done();
         let mut recoil = self.recoil.clone();
 
@@ -323,8 +310,7 @@ impl WorkerClient for WorkerHttpClient {
                 return State::Fail(Report::new(ClientError).attach_printable("cancelled"));
             }
 
-            match self
-                .agent
+            match client
                 .post(&endpoint)
                 .set("Authorization", &self.token)
                 .set("User-Agent", &self.user_agent)
@@ -357,20 +343,25 @@ impl WorkerClient for WorkerHttpClient {
     fn stream_job_step_log(
         &self,
         _ctx: Ctx<Background>,
-        project_id: Uuid,
-        workflow_id: Uuid,
-        revision_id: Uuid,
-        job_id: Uuid,
-        step_id: Uuid,
+        step_ref: &StepRef,
         reader: &mut PipeReader,
     ) -> Result<(), ClientError> {
-        let url = format!(
-            "{}/api/v0/invoker/projects/{}/workflows/{}/revisions/{}/jobs/{}/steps/{}/logs",
-            &self.fluxy_url, project_id, workflow_id, revision_id, job_id, step_id
-        );
+        let endpoint = {
+            let config = self.config.read().unwrap();
+            format!(
+                "{}/api/v0/invoker/projects/{}/workflows/{}/revisions/{}/jobs/{}/steps/{}/logs",
+                &config.fluxy_url,
+                step_ref.project_id,
+                step_ref.workflow_id,
+                step_ref.revision_id,
+                step_ref.job_id,
+                step_ref.step_id
+            )
+        };
 
-        self.agent
-            .put(&url)
+        let client = self.pool.stream_client();
+        client
+            .put(&endpoint)
             .set("Authorization", &self.token)
             .set("Content-Type", "application/octet-stream")
             .send(reader)
@@ -390,10 +381,13 @@ impl WorkerClient for WorkerHttpClient {
         job_id: Uuid,
         file: File,
     ) -> Result<(), ClientError> {
-        let url = format!(
-            "{}/api/v0/invoker/projects/{}/workflows/{}/revisions/{}/jobs/{}/results",
-            &self.fluxy_url, project_id, workflow_id, revision_id, job_id
-        );
+        let endpoint = {
+            let config = self.config.read().unwrap();
+            format!(
+                "{}/api/v0/invoker/projects/{}/workflows/{}/revisions/{}/jobs/{}/results",
+                &config.fluxy_url, project_id, workflow_id, revision_id, job_id
+            )
+        };
         let retry = || ctx.is_done();
         let mut recoil = self.recoil.clone();
 
@@ -403,11 +397,11 @@ impl WorkerClient for WorkerHttpClient {
             .change_context(ClientError)?
             .len();
 
+        let client = self.pool.assets_client();
         let res = recoil.run(|| {
-            tracing::info!("Uploading results to {}", url);
-            match self
-                .agent
-                .put(&url)
+            tracing::info!("Uploading results to {}", endpoint);
+            match client
+                .put(&endpoint)
                 .set("Authorization", &self.token)
                 .set("Content-Length", &file_size.to_string())
                 .set("Content-Type", "application/octet-stream")

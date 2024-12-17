@@ -1,18 +1,20 @@
+use std::sync::Arc;
+
 use cel_interpreter::Value as CelValue;
-use client::worker::{TimelineRequestStepOutcome, TimelineRequestStepState};
+use client::job::{TimelineRequestStepOutcome, TimelineRequestStepState};
 use jobengine::JobEngine;
 use uuid::Uuid;
 
 pub struct ExecutionContext {
     workdir: String,
-    envs: Vec<(String, String)>,
+    envs: Arc<Vec<(String, String)>>,
     cfg: jobengine::Config,
     engine: JobEngine,
     ok: bool,
 }
 
 impl ExecutionContext {
-    pub fn new(workdir: String, envs: Vec<(String, String)>, cfg: jobengine::Config) -> Self {
+    pub fn new(workdir: String, envs: Arc<Vec<(String, String)>>, cfg: jobengine::Config) -> Self {
         let engine = JobEngine::new(&cfg);
 
         Self {
@@ -30,7 +32,7 @@ impl ExecutionContext {
     }
 
     #[inline]
-    pub fn envs(&self) -> Vec<(String, String)> {
+    pub fn envs(&self) -> Arc<Vec<(String, String)>> {
         self.envs.clone()
     }
 
@@ -81,7 +83,7 @@ impl ExecutionContext {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use client::worker::TimelineRequestStepState;
+    use client::job::TimelineRequestStepState;
     use jobengine::{JobMeta, ProjectMeta, WorkflowMeta, WorkflowRevisionMeta};
     use std::{collections::BTreeMap, sync::Arc};
     use uuid::Uuid;
@@ -90,7 +92,7 @@ mod tests {
     fn test_update_state() {
         let mut ctx = super::ExecutionContext::new(
             "workdir".to_string(),
-            vec![("key".to_string(), "value".to_string())],
+            Arc::new(vec![("key".to_string(), "value".to_string())]),
             jobengine::Config {
                 id: Uuid::now_v7(),
                 name: "example".to_string(),
@@ -161,7 +163,7 @@ mod tests {
         };
         let ctx = super::ExecutionContext::new(
             "workdir".to_string(),
-            vec![("key".to_string(), "value".to_string())],
+            Arc::new(vec![("key".to_string(), "value".to_string())]),
             job_config.clone(),
         );
 

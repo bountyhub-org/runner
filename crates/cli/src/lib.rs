@@ -1,12 +1,13 @@
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::{generate, Shell};
-use client::hub::{HubClient, RegistrationRequest};
-use client::runner::RunnerClient;
-use client::worker::WorkerClient;
-use client::ClientBuilder;
+use client::job::HttpJobClient;
+use client::pool::ClientPool;
+use client::registration::{HttpRegistrationClient, RegistrationClient, RegistrationRequest};
+use client::runner::{HttpRunnerClient, JobAcquiredResponse};
 use ctx::{Background, Ctx};
 use error_stack::{Context, Report, Result, ResultExt};
 use runner::Runner;
+use std::sync::{Arc, RwLock};
 use std::{fmt, io};
 use sudoservice::service::Service;
 use sudoservice::systemd::{Config as SystemdConfig, Systemd};
@@ -81,17 +82,9 @@ enum ServiceCommands {
 }
 
 impl Cli {
-    pub fn run<B, H, I, W>(
-        self,
-        ctx: Ctx<Background>,
-        client_builder: B,
-    ) -> Result<(), ApplicationError>
-    where
-        B: ClientBuilder<Hub = H, Invoker = I, Worker = W> + 'static,
-        H: HubClient + 'static,
-        I: RunnerClient + 'static,
-        W: WorkerClient + 'static,
-    {
+    pub fn run(self, ctx: Ctx<Background>) -> Result<(), ApplicationError> {
+        let pool = ClientPool::default();
+        let user_agent = Arc::new(format!("runner/{} (cli)", env!("CARGO_PKG_VERSION")));
         match self.command {
             Commands::Configure {
                 token,
@@ -140,7 +133,7 @@ impl Cli {
                     workdir,
                 };
 
-                let client = client_builder.hub().with_url(url);
+                let client = HttpRegistrationClient::new(pool.default_client(), &url, &user_agent);
 
                 let response = client
                     .register(ctx, &request)
@@ -149,6 +142,7 @@ impl Cli {
 
                 let config = Config {
                     token: response.token,
+                    hub_url: url,
                     invoker_url: response.invoker_url,
                     fluxy_url: response.fluxy_url,
                     name: request.name,
@@ -162,7 +156,7 @@ impl Cli {
                     .attach_printable("Failed to validate configuration after registration")?;
 
                 config
-                    .write_config()
+                    .write()
                     .change_context(ApplicationError)
                     .attach_printable("failed to write config")?;
 
@@ -171,7 +165,7 @@ impl Cli {
                 Ok(())
             }
             Commands::Service { action } => {
-                let config = Config::read_config()
+                let config = Config::read()
                     .change_context(ApplicationError)
                     .attach_printable(
                         "Failed to read config file. Please make sure the runner is registered",
@@ -278,7 +272,7 @@ impl Cli {
                 Ok(())
             }
             Commands::Run {} => {
-                let config = Config::read_config()
+                let config = Config::read()
                     .change_context(ApplicationError)
                     .attach_printable(
                         "Failed to read config file. Please make sure the runner is registered",
@@ -289,26 +283,26 @@ impl Cli {
                     .change_context(ApplicationError)
                     .attach_printable("Invalid configuration. Please re-register the runner.")?;
 
-                let worker_envs: Vec<(String, String)> = dotenv::vars().collect();
+                let config = Arc::new(RwLock::new(config));
 
-                let worker = ShellWorker {
-                    root_workdir: config.workdir.clone(),
-                    envs: worker_envs,
-                    worker_client: client_builder
-                        .worker()
-                        .with_invoker_url(config.invoker_url.clone())
-                        .with_fluxy_url(config.fluxy_url.clone()),
+                let worker_envs: Arc<Vec<(String, String)>> = Arc::new(dotenv::vars().collect());
+
+                let worker_builder = WorkerBuilder {
+                    config: Arc::clone(&config),
+                    pool: pool.clone(),
+                    user_agent: Arc::clone(&user_agent),
+                    envs: Arc::clone(&worker_envs),
                 };
 
-                let runner_client = client_builder
-                    .invoker()
-                    .with_url(config.invoker_url.clone())
-                    .with_token(config.token.clone());
-
-                let mut runner = Runner::new(config, runner_client, worker);
+                let runner_client = HttpRunnerClient::new(
+                    Arc::clone(&config),
+                    pool.clone(),
+                    Arc::clone(&user_agent),
+                );
+                let runner = Runner::new(Arc::clone(&config), worker_builder);
 
                 runner
-                    .run(ctx.clone())
+                    .run(ctx.clone(), runner_client)
                     .change_context(ApplicationError)
                     .attach_printable("runner exited with error")?;
 
@@ -321,6 +315,31 @@ impl Cli {
 
                 Ok(())
             }
+        }
+    }
+}
+
+struct WorkerBuilder {
+    config: Arc<RwLock<Config>>,
+    pool: ClientPool,
+    user_agent: Arc<String>,
+    envs: Arc<Vec<(String, String)>>,
+}
+
+impl runner::WorkerBuilder for WorkerBuilder {
+    type Worker = ShellWorker<HttpJobClient>;
+
+    fn build(&self, job: JobAcquiredResponse) -> Self::Worker {
+        ShellWorker {
+            root_workdir: self.config.read().unwrap().workdir.clone(),
+            envs: Arc::clone(&self.envs),
+            client: HttpJobClient::new(
+                Arc::clone(&self.config),
+                self.pool.clone(),
+                &job.token,
+                Arc::clone(&self.user_agent),
+            ),
+            job,
         }
     }
 }
