@@ -309,7 +309,7 @@ checksum = "afb84c814227b90d6895e01398aee0d8033c00e7466aca416fb6a8e0eb19d8a7"
 
 [[package]]
 name = "cli"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "clap",
  "clap_complete",
@@ -328,7 +328,7 @@ dependencies = [
 
 [[package]]
 name = "client"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "cel-interpreter",
  "config",
@@ -354,7 +354,7 @@ checksum = "5b63caa9aa9397e2d9480a9b13673856c78d8ac123288526c37d7839f2a86990"
 
 [[package]]
 name = "config"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "error-stack",
  "hostname",
@@ -1315,7 +1315,7 @@ dependencies = [
 
 [[package]]
 name = "runner"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "client",
  "config",
@@ -1579,7 +1579,7 @@ checksum = "a8f112729512f8e442d81f95a8a7ddf2b7c6b8a1a6f509a95864142b30cab2d3"
 
 [[package]]
 name = "streamlog"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "client",
  "ctx",
@@ -2075,7 +2075,7 @@ checksum = "d135d17ab770252ad95e9a872d365cf3090e3be864a34ab46f48555993efc904"
 
 [[package]]
 name = "worker"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "artifact",
  "cel-interpreter",

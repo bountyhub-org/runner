@@ -1,6 +1,6 @@
 [package]
 name = "runner"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 authors = [ "Nikola Jokic <nikola.jokic@bountyhub.org>" ]
 description = "Runner is package used to ask for jobs from the BountyHub platform"
