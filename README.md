@@ -11,7 +11,7 @@ More information about the BountyHub project can be found [here](https://docs.bo
 
 ## Download the binary
 
-You can download the binary from the [releases page](https://bountyhub-org/runner/releases).
+You can download the binary from the [releases page](https://github.com/bountyhub-org/runner/releases).
 
 Extract packages and move the binary to the desired location.
 
