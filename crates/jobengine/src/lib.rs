@@ -1,7 +1,5 @@
-use cel_interpreter::{
-    extractors::This, objects::Value, Context, ExecutionError, FunctionContext, Program,
-};
-use error_stack::{Context as ErrorContext, Result, ResultExt};
+use cellang::{Environment, EnvironmentBuilder, Key, Map, TokenTree, Value};
+use error_stack::{Context as ErrorContext, Report, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fmt;
@@ -28,64 +26,68 @@ pub struct Config {
 /// JobEngine is a wrapper around the CEL interpreter that provides a context
 /// with the necessary variables and functions to evaluate expressions.
 pub struct JobEngine {
-    ctx: Context<'static>,
+    ctx: EnvironmentBuilder<'static>,
 }
 
 impl JobEngine {
     pub fn new(config: &Config) -> Self {
-        let mut ctx = Context::default();
+        let mut ctx = EnvironmentBuilder::default();
 
         // Variables
-        ctx.add_variable("id", config.id.to_string())
+        ctx.set_variable("id", config.id.to_string())
             .expect("failed to add id");
-        ctx.add_variable("name", config.name.clone())
+        ctx.set_variable("name", config.name.clone())
             .expect("failed to add name");
-        ctx.add_variable("project", config.project.clone())
+        ctx.set_variable("project", config.project.clone())
             .expect("failed to add project");
-        ctx.add_variable("workflow", config.workflow.clone())
+        ctx.set_variable("workflow", config.workflow.clone())
             .expect("failed to add workflow");
-        ctx.add_variable("revision", config.revision.clone())
+        ctx.set_variable("revision", config.revision.clone())
             .expect("failed to add revision");
-        ctx.add_variable("scans", config.scans.clone())
+        ctx.set_variable("scans", config.scans.clone())
             .expect("failed to add scans");
-        ctx.add_variable("vars", config.vars.clone())
-            .expect("failed to add vars");
-        ctx.add_variable("ok", true)
+        ctx.set_variable::<&str, Map>(
+            "vars",
+            config
+                .vars
+                .clone()
+                .into_iter()
+                .map(|(k, v)| (k.into(), v.into()))
+                .collect(),
+        )
+        .expect("failed to add vars");
+        ctx.set_variable("ok", true)
             .expect("failed to add succeeded");
-        ctx.add_variable("always", true)
+        ctx.set_variable("always", true)
             .expect("failed to add failed");
 
         // Functions
-        ctx.add_function("is_available", is_available);
-        ctx.add_function("has_diff", has_diff);
+        ctx.set_function("is_available", Box::new(is_available));
+        ctx.set_function("has_diff", Box::new(has_diff));
 
         JobEngine { ctx }
     }
 
     /// Evaluates the given expression and returns the result
     pub fn eval(&self, expr: &str) -> Result<Value, EvaluationError> {
-        let program = Program::compile(expr)
-            .change_context(EvaluationError)
-            .attach_printable("failed to compile the program")?;
-
-        program
-            .execute(&self.ctx)
-            .change_context(EvaluationError)
-            .attach_printable("failed to execute the program")
+        match cellang::eval(&self.ctx.build(), expr) {
+            Ok(value) => Ok(value),
+            Err(err) => Err(Report::new(EvaluationError).attach_printable(format!("{err:?}"))),
+        }
     }
 
     /// Sets the value of the `ok` variable
     pub fn set_ok(&mut self, ok: bool) {
-        self.ctx.add_variable("ok", ok).unwrap();
+        self.ctx.set_variable("ok", ok).unwrap();
     }
 
     /// Sets the value of the `name` variable
     pub fn set_job_ctx(&mut self, id: Uuid, name: &str) {
         self.ctx
-            .add_variable("id", id.to_string())
+            .set_variable("id", id.to_string())
             .expect("failed to add id");
         self.ctx
-            .add_variable("name", name)
+            .set_variable("name", name)
             .expect("failed to add name");
     }
 }
@@ -97,11 +99,20 @@ pub struct JobMeta {
     pub nonce: Option<String>,
 }
 
-impl TryFrom<Value> for JobMeta {
-    type Error = String;
-
-    fn try_from(value: Value) -> std::result::Result<Self, Self::Error> {
-        serde_json::from_value(value.json().map_err(|e| e.to_string())?).map_err(|e| e.to_string())
+impl From<JobMeta> for Value {
+    fn from(meta: JobMeta) -> Self {
+        Value::Map(
+            vec![
+                (Key::from("id"), Value::String(meta.id.to_string())),
+                (Key::from("state"), Value::String(meta.state)),
+                (
+                    Key::from("nonce"),
+                    meta.nonce.map_or(Value::Null, Value::String),
+                ),
+            ]
+            .into_iter()
+            .collect(),
+        )
     }
 }
 
@@ -110,9 +121,45 @@ pub struct ProjectMeta {
     pub id: Uuid,
 }
 
+impl From<ProjectMeta> for Value {
+    fn from(meta: ProjectMeta) -> Self {
+        Value::Map(
+            vec![(Key::from("id"), Value::String(meta.id.to_string()))]
+                .into_iter()
+                .collect(),
+        )
+    }
+}
+
+impl From<Value> for ProjectMeta {
+    fn from(value: Value) -> Self {
+        match value {
+            Value::Map(map) => {
+                let id = match map.get(&Key::from("id")).unwrap().unwrap() {
+                    Value::String(id) => Uuid::parse_str(id).unwrap(),
+                    _ => panic!("expected a string"),
+                };
+
+                ProjectMeta { id }
+            }
+            _ => panic!("expected a map"),
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct WorkflowMeta {
     pub id: Uuid,
+}
+
+impl From<WorkflowMeta> for Value {
+    fn from(meta: WorkflowMeta) -> Self {
+        Value::Map(
+            vec![(Key::from("id"), Value::String(meta.id.to_string()))]
+                .into_iter()
+                .collect(),
+        )
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -120,64 +167,57 @@ pub struct WorkflowRevisionMeta {
     pub id: Uuid,
 }
 
-fn is_available(
-    ftx: &FunctionContext,
-    This(this): This<Value>,
-) -> std::result::Result<bool, ExecutionError> {
-    let succeeded_target_scans = serde_json::from_value::<Vec<JobMeta>>(
-        this.json().map_err(|err| ftx.error(err.to_string()))?,
-    )
-    .map_err(|e| ftx.error(e.to_string()))?
-    .into_iter()
-    .filter(|scan| scan.state == "succeeded")
-    .collect::<Vec<_>>();
-
-    let ctx_name = match ftx.ptx.get_variable("name").unwrap() {
-        Value::String(name) => name.clone(),
-        _ => panic!("expected name to be set"),
-    };
-    let ctx_id = match ftx.ptx.get_variable("id").unwrap() {
-        Value::String(id) => Uuid::parse_str(&id).map_err(|e| ftx.error(e.to_string()))?,
-        _ => panic!("expected id to be set"),
-    };
-
-    let scans: BTreeMap<String, Vec<JobMeta>> = serde_json::from_value(
-        ftx.ptx
-            .get_variable("scans")
-            .unwrap()
-            .json()
-            .map_err(|err| ftx.error(err.to_string()))?,
-    )
-    .map_err(|err| ftx.error(err.to_string()))?;
-
-    let this_jobs = scans
-        .get(ctx_name.as_str())
-        .ok_or(ftx.error("scan not found"))?
-        .iter()
-        .find(|job| job.id < ctx_id);
-
-    Ok(!succeeded_target_scans.is_empty()
-        && (this_jobs.is_none()
-            || this_jobs.unwrap().id < succeeded_target_scans.first().unwrap().id))
+impl From<WorkflowRevisionMeta> for Value {
+    fn from(meta: WorkflowRevisionMeta) -> Self {
+        Value::Map(
+            vec![(Key::from("id"), Value::String(meta.id.to_string()))]
+                .into_iter()
+                .collect(),
+        )
+    }
 }
 
-fn has_diff(
-    ftx: &FunctionContext,
-    This(this): This<Value>,
-) -> std::result::Result<bool, ExecutionError> {
-    let succeeded_target_scans: Vec<JobMeta> = serde_json::from_value::<Vec<JobMeta>>(
-        this.json().map_err(|err| ftx.error(err.to_string()))?,
-    )
-    .map_err(|e| ftx.error(e.to_string()))?
-    .into_iter()
-    .filter(|scan| scan.state == "succeeded")
-    .collect::<Vec<_>>();
+fn is_available(
+    env: &Environment,
+    tokens: &[TokenTree],
+) -> std::result::Result<Value, miette::Error> {
+    if tokens.len() != 1 {
+        miette::bail!("expected 1 argument, got {}", tokens.len());
+    }
 
-    Ok(
-        (succeeded_target_scans.len() == 1 && succeeded_target_scans[0].nonce.is_some())
-            || (succeeded_target_scans.len() > 2
-                && succeeded_target_scans[0].nonce != succeeded_target_scans[1].nonce),
-    )
+    let id = match env.lookup_variable("id").unwrap() {
+        Value::String(id) => Uuid::parse_str(id).unwrap(),
+        _ => miette::bail!("expected a string"),
+    };
+
+    let scans = cellang::eval_ast(env, &tokens[0])?;
+    let mut jobs: Vec<JobMeta> = scans.try_from_value()?;
+    let job = jobs.pop().unwrap();
+
+    Ok(Value::Bool(job.id != id))
+}
+
+fn has_diff(env: &Environment, tokens: &[TokenTree]) -> std::result::Result<Value, miette::Error> {
+    if tokens.len() != 1 {
+        miette::bail!("expected 1 argument, got {}", tokens.len());
+    }
+
+    let scans = cellang::eval_ast(env, &tokens[0])?;
+    let mut scans: Vec<JobMeta> = scans.try_from_value()?;
+
+    // Get the latest succeeded job
+    let latest = match scans.pop() {
+        Some(job) if job.state == "succeeded" => job,
+        _ => return Ok(Value::Bool(false)),
+    };
+
+    let previous = match scans.into_iter().find(|job| job.state == "succeeded") {
+        Some(job) => job,
+        // No previous job so this one is a diff
+        None => return Ok(Value::Bool(true)),
+    };
+
+    Ok(Value::Bool(previous.nonce != latest.nonce))
 }
 
 #[cfg(test)]
