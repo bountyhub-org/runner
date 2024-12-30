@@ -1,6 +1,5 @@
 use super::error::ClientError;
 use crate::{error::RetryableError, pool::ClientPool};
-use cel_interpreter::objects::Value;
 use config::Config;
 use ctx::{Background, Ctx};
 use error_stack::{Report, Result, ResultExt};
@@ -60,14 +59,6 @@ pub struct JobContext {
     pub id: Uuid,
     pub state: String,
     pub nonce: Option<String>,
-}
-
-impl TryFrom<Value> for JobContext {
-    type Error = String;
-    #[tracing::instrument]
-    fn try_from(value: Value) -> std::result::Result<Self, Self::Error> {
-        serde_json::from_value(value.json().map_err(|e| e.to_string())?).map_err(|e| e.to_string())
-    }
 }
 
 #[derive(Serialize, Debug, Deserialize, Clone)]

@@ -1,8 +1,7 @@
-use std::sync::Arc;
-
-use cel_interpreter::Value as CelValue;
+use cellang::Value as CelValue;
 use client::job::{TimelineRequestStepOutcome, TimelineRequestStepState};
 use jobengine::JobEngine;
+use std::sync::Arc;
 use uuid::Uuid;
 
 pub struct ExecutionContext {
@@ -170,31 +169,28 @@ mod tests {
         assert_eq!(ctx.eval("1 + 1").unwrap(), CelValue::Int(2));
         assert_eq!(
             ctx.eval("scans.example[0].id").unwrap(),
-            CelValue::String(Arc::new(job_config.scans["example"][0].id.to_string()))
+            CelValue::String(job_config.scans["example"][0].id.to_string())
         );
         assert_eq!(
             ctx.eval("project.id").unwrap(),
-            CelValue::String(Arc::new(job_config.project.id.to_string()))
+            CelValue::String(job_config.project.id.to_string())
         );
         assert_eq!(
             ctx.eval("workflow.id").unwrap(),
-            CelValue::String(Arc::new(job_config.workflow.id.to_string()))
+            CelValue::String(job_config.workflow.id.to_string())
         );
         assert_eq!(
             ctx.eval("revision.id").unwrap(),
-            CelValue::String(Arc::new(job_config.revision.id.to_string()))
+            CelValue::String(job_config.revision.id.to_string())
         );
         assert_eq!(
             ctx.eval("vars.key").unwrap(),
-            CelValue::String(Arc::new("value".to_string()))
+            CelValue::String("value".to_string())
         );
-        assert_eq!(
-            ctx.eval("name").unwrap(),
-            CelValue::String(Arc::new(job_config.name))
-        );
+        assert_eq!(ctx.eval("name").unwrap(), CelValue::String(job_config.name));
         assert_eq!(
             ctx.eval("id").unwrap(),
-            CelValue::String(Arc::new(job_config.id.to_string()))
+            CelValue::String(job_config.id.to_string())
         );
     }
 }
