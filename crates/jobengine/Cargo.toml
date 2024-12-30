@@ -18,3 +18,5 @@ error-stack = "^0.5"
 miette = { version = "^7", features = ["fancy"] }
 
 [dev-dependencies]
+error-stack = "^0.5"
+miette = "^7"
