@@ -217,6 +217,15 @@ fn has_diff(env: &Environment, tokens: &[TokenTree]) -> std::result::Result<Valu
         None => return Ok(Value::Bool(true)),
     };
 
+    println!("\n\n\n\n\n");
+    println!("=============");
+    println!(
+        "previous.nonce = {:?}, latest.nonce = {:?}",
+        previous.nonce, latest.nonce
+    );
+    println!("=============");
+    println!("\n\n\n\n\n");
+
     Ok(Value::Bool(previous.nonce != latest.nonce))
 }
 
