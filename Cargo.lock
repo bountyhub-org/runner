@@ -203,8 +203,9 @@ dependencies = [
 
 [[package]]
 name = "cellang"
-version = "0.3.0"
-source = "git+https://github.com/nikola-jokic/cellang?branch=main#b019443e3f258364be29f5050381373fa25b96b1"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2cb7fc482731aaf6ef1b39bc86420a1fbfb747847e9fc8ded033a528df25c7b1"
 dependencies = [
  "base64",
  "miette",

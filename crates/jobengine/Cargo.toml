@@ -13,8 +13,7 @@ keywords = ["bountyhub", "job", "engine"]
 uuid = { version = "^1"}
 serde = { version = "^1", features = ["derive"] }
 serde_json = { version = "^1" }
-# cellang = { version = "^0.3" }
-cellang = { git = "https://github.com/nikola-jokic/cellang", package="cellang", branch = "main" }
+cellang = { version = "^0.4" }
 error-stack = "^0.5"
 miette = { version = "^7", features = ["fancy"] }
 
