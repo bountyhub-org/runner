@@ -13,5 +13,8 @@ keywords = ["bountyhub", "job", "engine"]
 uuid = { version = "^1"}
 serde = { version = "^1", features = ["derive"] }
 serde_json = { version = "^1" }
-cel-interpreter = { version = "^0.9", features = ["chrono", "json", "regex"]}
+cellang = { version = "^0.4" }
 error-stack = "^0.5"
+miette = { version = "^7", features = ["fancy"] }
+
+[dev-dependencies]

@@ -18,7 +18,7 @@ serde_repr = "^0.1"
 serde_json = "^1"
 uuid = { version = "^1", features = ["serde"] }
 pipe = "0.4.0"
-cel-interpreter = { version = "0.9.0", features = ["chrono", "json"] }
+cellang = { version = "^0.4" }
 jobengine = { path = "../jobengine" }
 ctx = { path = "../ctx" }
 recoil = { path = "../recoil" }

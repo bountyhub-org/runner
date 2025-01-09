@@ -1,6 +1,6 @@
 use super::execution_context::ExecutionContext;
 use artifact::ArtifactBuilder;
-use cel_interpreter::Value as CelValue;
+use cellang::Value;
 use client::job::{
     JobClient, JobResolvedStepResponse, StepKind, StepRef, TimelineRequest,
     TimelineRequestStepOutcome, TimelineRequestStepState,
@@ -470,15 +470,15 @@ impl CommandStep {
                     let value = execution_ctx.eval(&expr)?;
 
                     let value = match value {
-                        CelValue::Int(val) => val.to_string(),
-                        CelValue::UInt(val) => val.to_string(),
-                        CelValue::Float(val) => val.to_string(),
-                        CelValue::String(val) => val.to_string(),
-                        CelValue::Bool(val) => val.to_string(),
-                        CelValue::Duration(val) => val.to_string(),
-                        CelValue::Timestamp(val) => val.to_string(),
-                        CelValue::Null => "".to_string(),
-                        _ => return Err(format!("Unsupported value type: {}", value.type_of())),
+                        Value::Int(val) => val.to_string(),
+                        Value::Uint(val) => val.to_string(),
+                        Value::Double(val) => val.to_string(),
+                        Value::String(val) => val.to_string(),
+                        Value::Bool(val) => val.to_string(),
+                        Value::Duration(val) => val.to_string(),
+                        Value::Timestamp(val) => val.to_string(),
+                        Value::Null => "".to_string(),
+                        val => return Err(format!("Unsupported value type: {val:?}")),
                     };
 
                     output.push_str(&value);
