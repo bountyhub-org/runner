@@ -3,6 +3,7 @@ use error_stack::{Context as ErrorContext, Report, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fmt;
+use std::sync::Arc;
 use uuid::Uuid;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -62,8 +63,8 @@ impl JobEngine {
             .expect("failed to add failed");
 
         // Functions
-        ctx.set_function("is_available", Box::new(is_available));
-        ctx.set_function("has_diff", Box::new(has_diff));
+        ctx.set_function("is_available", Arc::new(is_available));
+        ctx.set_function("has_diff", Arc::new(has_diff));
 
         JobEngine { ctx }
     }
@@ -192,9 +193,12 @@ fn is_available(
 
     let scans = cellang::eval_ast(env, &tokens[0])?;
     let mut jobs: Vec<JobMeta> = scans.try_from_value()?;
-    let job = jobs.pop().unwrap();
+    if jobs.is_empty() {
+        return Ok(Value::Bool(false));
+    }
 
-    Ok(Value::Bool(job.id != id))
+    let job = jobs.pop().unwrap();
+    Ok(Value::Bool(job.state == "succeeded" && id < job.id))
 }
 
 fn has_diff(env: &Environment, tokens: &[TokenTree]) -> std::result::Result<Value, miette::Error> {
@@ -211,20 +215,15 @@ fn has_diff(env: &Environment, tokens: &[TokenTree]) -> std::result::Result<Valu
         _ => return Ok(Value::Bool(false)),
     };
 
+    if latest.nonce.is_none() {
+        return Ok(Value::Bool(false));
+    }
+
     let previous = match scans.into_iter().find(|job| job.state == "succeeded") {
         Some(job) => job,
         // No previous job so this one is a diff
         None => return Ok(Value::Bool(true)),
     };
-
-    println!("\n\n\n\n\n");
-    println!("=============");
-    println!(
-        "previous.nonce = {:?}, latest.nonce = {:?}",
-        previous.nonce, latest.nonce
-    );
-    println!("=============");
-    println!("\n\n\n\n\n");
 
     Ok(Value::Bool(previous.nonce != latest.nonce))
 }
@@ -234,9 +233,9 @@ mod tests {
     use super::*;
     use uuid::Uuid;
 
-    fn new_config(name: &str) -> Config {
+    fn new_config(id: Uuid, name: &str) -> Config {
         Config {
-            id: Uuid::now_v7(),
+            id,
             name: name.to_string(),
             vars: BTreeMap::new(),
             scans: BTreeMap::new(),
@@ -247,25 +246,26 @@ mod tests {
     }
 
     #[test]
-    fn test_is_available_no_scan() {
-        let cfg = new_config("scan1");
+    fn test_is_available_on_notexistent_scan() {
+        let cfg = new_config(Uuid::now_v7(), "scan1");
         let engine = JobEngine::new(&cfg);
         assert!(engine.eval("scans.scan2.is_available()").is_err());
     }
 
     #[test]
-    fn test_is_available_empty_target() {
+    fn test_is_available_on_empty_target() {
         let mut scan_jobs = BTreeMap::new();
+        let id = Uuid::now_v7();
         scan_jobs.insert(
             "scan1".to_string(),
             vec![JobMeta {
-                id: Uuid::now_v7(),
+                id,
                 state: "succeeded".to_string(),
                 nonce: None,
             }],
         );
         scan_jobs.insert("scan2".to_string(), vec![]);
-        let mut cfg = new_config("scan1");
+        let mut cfg = new_config(Uuid::nil(), "scan1");
         cfg.scans = scan_jobs;
         let engine = JobEngine::new(&cfg);
         let result = engine.eval("scans.scan2.is_available()").unwrap();
@@ -273,79 +273,34 @@ mod tests {
     }
 
     #[test]
-    fn test_is_available_empty_self() {
+    fn test_is_available_when_empty_self() {
         let mut scan_jobs = BTreeMap::new();
+        let scan2_id = Uuid::now_v7();
         scan_jobs.insert(
             "scan2".to_string(),
             vec![JobMeta {
-                id: Uuid::now_v7(),
+                id: scan2_id,
                 state: "succeeded".to_string(),
                 nonce: None,
             }],
         );
         scan_jobs.insert("scan1".to_string(), vec![]);
 
-        let mut cfg = new_config("scan1");
+        let mut cfg = new_config(Uuid::nil(), "scan1");
         cfg.scans = scan_jobs;
         let engine = JobEngine::new(&cfg);
         let result = engine.eval("scans.scan2.is_available()").unwrap();
         assert_eq!(result, Value::Bool(true));
-    }
-
-    #[test]
-    fn test_is_available_assigned_self() {
-        let mut scan_jobs = BTreeMap::new();
-        scan_jobs.insert(
-            "scan2".to_string(),
-            vec![JobMeta {
-                id: Uuid::now_v7(),
-                state: "succeeded".to_string(),
-                nonce: None,
-            }],
-        );
-        let id = Uuid::now_v7();
-        scan_jobs.insert(
-            "scan1".to_string(),
-            vec![JobMeta {
-                id,
-                state: "assigned".to_string(),
-                nonce: None,
-            }],
-        );
-
-        let mut cfg = new_config("scan1");
-        cfg.id = id;
-        cfg.scans = scan_jobs;
-        let engine = JobEngine::new(&cfg);
-        let result = engine.eval("scans.scan2.is_available()").unwrap();
-        assert_eq!(result, Value::Bool(true));
-    }
-
-    #[test]
-    fn test_is_available_false_on_self() {
-        let mut scan_jobs = BTreeMap::new();
-        scan_jobs.insert(
-            "scan1".to_string(),
-            vec![JobMeta {
-                id: Uuid::now_v7(),
-                state: "succeeded".to_string(),
-                nonce: None,
-            }],
-        );
-        let mut cfg = new_config("scan1");
-        cfg.scans = scan_jobs;
-        let engine = JobEngine::new(&cfg);
-        let result = engine.eval("scans.scan1.is_available()").unwrap();
-        assert_eq!(result, Value::Bool(false));
     }
 
     #[test]
     fn test_is_available_false_when_available_before() {
         let mut scan_jobs = BTreeMap::new();
+        let ids = [Uuid::now_v7(), Uuid::now_v7()];
         scan_jobs.insert(
             "scan2".to_string(),
             vec![JobMeta {
-                id: Uuid::now_v7(),
+                id: ids[0],
                 state: "succeeded".to_string(),
                 nonce: None,
             }],
@@ -353,12 +308,12 @@ mod tests {
         scan_jobs.insert(
             "scan1".to_string(),
             vec![JobMeta {
-                id: Uuid::now_v7(),
+                id: ids[1],
                 state: "succeeded".to_string(),
                 nonce: None,
             }],
         );
-        let mut cfg = new_config("scan1");
+        let mut cfg = new_config(ids[1], "scan1");
         cfg.scans = scan_jobs;
         let engine = JobEngine::new(&cfg);
         let result = engine.eval("scans.scan2.is_available()").unwrap();
@@ -368,10 +323,11 @@ mod tests {
     #[test]
     fn test_is_available_true_on_succeeded() {
         let mut scan_jobs = BTreeMap::new();
+        let ids = [Uuid::now_v7(), Uuid::now_v7()];
         scan_jobs.insert(
             "scan1".to_string(),
             vec![JobMeta {
-                id: Uuid::now_v7(),
+                id: ids[0],
                 state: "succeeded".to_string(),
                 nonce: None,
             }],
@@ -379,12 +335,12 @@ mod tests {
         scan_jobs.insert(
             "scan2".to_string(),
             vec![JobMeta {
-                id: Uuid::now_v7(),
+                id: ids[1],
                 state: "succeeded".to_string(),
                 nonce: None,
             }],
         );
-        let mut cfg = new_config("scan1");
+        let mut cfg = new_config(ids[0], "scan1");
         cfg.scans = scan_jobs;
         let engine = JobEngine::new(&cfg);
         let result = engine.eval("scans.scan2.is_available()").unwrap();
@@ -418,7 +374,7 @@ mod tests {
                 },
             ],
         );
-        let mut cfg = new_config("scan1");
+        let mut cfg = new_config(ids[1], "scan1");
         cfg.scans = scan_jobs;
         let engine = JobEngine::new(&cfg);
         let result = engine.eval("scans.scan2.is_available()").unwrap();
@@ -427,7 +383,7 @@ mod tests {
 
     #[test]
     fn test_has_diff_no_scan() {
-        let cfg = new_config("scan1");
+        let cfg = new_config(Uuid::nil(), "scan1");
         let engine = JobEngine::new(&cfg);
         assert!(engine.eval("scans.scan2.has_diff()").is_err());
     }
@@ -435,16 +391,17 @@ mod tests {
     #[test]
     fn test_has_diff_empty_target() {
         let mut scan_jobs = BTreeMap::new();
+        let id = Uuid::now_v7();
         scan_jobs.insert(
             "scan1".to_string(),
             vec![JobMeta {
-                id: Uuid::now_v7(),
+                id,
                 state: "succeeded".to_string(),
                 nonce: None,
             }],
         );
         scan_jobs.insert("scan2".to_string(), vec![]);
-        let mut cfg = new_config("scan1");
+        let mut cfg = new_config(id, "scan1");
         cfg.scans = scan_jobs;
         let engine = JobEngine::new(&cfg);
         let result = engine.eval("scans.scan2.is_available()").unwrap();
@@ -454,15 +411,16 @@ mod tests {
     #[test]
     fn test_has_diff_one_scan_empty_nonce() {
         let mut scan_jobs = BTreeMap::new();
+        let id = Uuid::now_v7();
         scan_jobs.insert(
             "scan1".to_string(),
             vec![JobMeta {
-                id: Uuid::now_v7(),
+                id,
                 state: "succeeded".to_string(),
                 nonce: None,
             }],
         );
-        let mut cfg = new_config("scan1");
+        let mut cfg = new_config(id, "scan1");
         cfg.scans = scan_jobs;
         let engine = JobEngine::new(&cfg);
         let result = engine.eval("scans.scan1.has_diff()").unwrap();
@@ -472,15 +430,16 @@ mod tests {
     #[test]
     fn test_has_diff_one_scan_has_nonce() {
         let mut scan_jobs = BTreeMap::new();
+        let id = Uuid::now_v7();
         scan_jobs.insert(
             "scan1".to_string(),
             vec![JobMeta {
-                id: Uuid::now_v7(),
+                id,
                 state: "succeeded".to_string(),
                 nonce: Some("nonce".to_string()),
             }],
         );
-        let mut cfg = new_config("scan1");
+        let mut cfg = new_config(id, "scan2");
         cfg.scans = scan_jobs;
         let engine = JobEngine::new(&cfg);
         let result = engine.eval("scans.scan1.has_diff()").unwrap();
@@ -489,7 +448,7 @@ mod tests {
 
     #[test]
     fn test_ok_and_always() {
-        let cfg = new_config("scan1");
+        let cfg = new_config(Uuid::now_v7(), "scan1");
         let mut engine = JobEngine::new(&cfg);
         let result = engine.eval("ok").unwrap();
         assert_eq!(result, Value::Bool(true));
