@@ -18,8 +18,7 @@ serde_repr = "^0.1"
 serde_json = "^1"
 uuid = { version = "^1", features = ["serde"] }
 pipe = "0.4.0"
-# cellang = { version = "^0.4" }
-cellang = { git = "https://github.com/nikola-jokic/cellang", package="cellang", branch = "main" }
+cellang = { version = "^0.4" }
 jobengine = { path = "../jobengine" }
 ctx = { path = "../ctx" }
 recoil = { path = "../recoil" }

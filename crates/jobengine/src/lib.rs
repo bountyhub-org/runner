@@ -26,7 +26,6 @@ pub struct Config {
 
 /// JobEngine is a wrapper around the CEL interpreter that provides a context
 /// with the necessary variables and functions to evaluate expressions.
-#[derive(Debug)]
 pub struct JobEngine {
     ctx: EnvironmentBuilder<'static>,
 }
@@ -195,7 +194,6 @@ fn is_available(
     let scans = cellang::eval_ast(env, &tokens[0])?;
     let jobs: Vec<JobMeta> = scans.try_from_value()?;
     if jobs.is_empty() {
-        println!("no jobs found");
         return Ok(Value::Bool(false));
     }
 
