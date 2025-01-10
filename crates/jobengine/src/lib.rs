@@ -209,11 +209,11 @@ fn has_diff(env: &Environment, tokens: &[TokenTree]) -> std::result::Result<Valu
     }
 
     let scans = cellang::eval_ast(env, &tokens[0])?;
-    let mut scans: Vec<JobMeta> = scans.try_from_value()?;
+    let scans: Vec<JobMeta> = scans.try_from_value()?;
 
-    // Get the latest succeeded job
-    let latest = match scans.pop() {
-        Some(job) if job.state == "succeeded" => job,
+    let mut scans = scans.into_iter();
+    let latest = match scans.next() {
+        Some(job) if job.state == "succeeded" => job.clone(),
         _ => return Ok(Value::Bool(false)),
     };
 
@@ -221,7 +221,8 @@ fn has_diff(env: &Environment, tokens: &[TokenTree]) -> std::result::Result<Valu
         return Ok(Value::Bool(false));
     }
 
-    let previous = match scans.into_iter().find(|job| job.state == "succeeded") {
+    // Find the next succeeded job and compare the nonce
+    let previous = match scans.find(|job| job.state == "succeeded") {
         Some(job) => job,
         // No previous job so this one is a diff
         None => return Ok(Value::Bool(true)),
