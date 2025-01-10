@@ -17,7 +17,7 @@ jobs:
         run: echo "VERSION=${{ github.ref_name }}" >> $GITHUB_ENV
       - name: Check that tag version and cli Cargo.toml version match
         run: |
-          if ! grep -q "version = \"$VERSION\"" ./crates/cli/Cargo.toml; then
+          if ! grep -q "version = \"$VERSION\"" ./Cargo.toml; then
             echo "Tag version $VERSION does not match Cargo.toml version" >&2
             exit 1
           fi
@@ -82,7 +82,7 @@ jobs:
         run: |
           version="${{ needs.create-release.outputs.version }}"
           gh release upload "$version" "$ASSET" "$ASSET_SUM"
-          
+
   docker-release:
     needs:
       - build-release
