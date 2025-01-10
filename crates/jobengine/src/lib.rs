@@ -193,12 +193,13 @@ fn is_available(
     };
 
     let scans = cellang::eval_ast(env, &tokens[0])?;
-    let mut jobs: Vec<JobMeta> = scans.try_from_value()?;
+    let jobs: Vec<JobMeta> = scans.try_from_value()?;
     if jobs.is_empty() {
+        println!("no jobs found");
         return Ok(Value::Bool(false));
     }
 
-    let job = jobs.pop().unwrap();
+    let job = jobs.first().unwrap();
     Ok(Value::Bool(job.state == "succeeded" && id < job.id))
 }
 
