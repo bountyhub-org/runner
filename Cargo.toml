@@ -13,3 +13,14 @@ members = [
     "crates/streamlog",
     "crates/jobengine",
 ]
+
+[workspace.package]
+version = "0.2.1"
+edition = "2021"
+license = "MIT"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+

@@ -103,7 +103,7 @@ dependencies = [
 
 [[package]]
 name = "artifact"
-version = "0.1.0"
+version = "0.2.1"
 dependencies = [
  "ctx",
  "error-stack",
@@ -288,7 +288,7 @@ checksum = "f46ad14479a25103f283c0f10005961cf086d8dc42205bb44c46ac563475dca6"
 
 [[package]]
 name = "cli"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "clap",
  "clap_complete",
@@ -307,7 +307,7 @@ dependencies = [
 
 [[package]]
 name = "client"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "cellang",
  "config",
@@ -333,7 +333,7 @@ checksum = "5b63caa9aa9397e2d9480a9b13673856c78d8ac123288526c37d7839f2a86990"
 
 [[package]]
 name = "config"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "error-stack",
  "hostname",
@@ -436,7 +436,7 @@ dependencies = [
 
 [[package]]
 name = "ctx"
-version = "0.1.0"
+version = "0.2.1"
 
 [[package]]
 name = "deflate64"
@@ -802,7 +802,7 @@ checksum = "d75a2a4b1b190afb6f5425f10f6a8f959d2ea0b9c2b1d79553551850539e4674"
 
 [[package]]
 name = "jobengine"
-version = "0.1.0"
+version = "0.2.1"
 dependencies = [
  "cellang",
  "error-stack",
@@ -1128,7 +1128,7 @@ dependencies = [
 
 [[package]]
 name = "recoil"
-version = "0.1.0"
+version = "0.2.1"
 dependencies = [
  "rand",
 ]
@@ -1179,7 +1179,7 @@ dependencies = [
 
 [[package]]
 name = "runner"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "client",
  "config",
@@ -1412,7 +1412,7 @@ checksum = "a8f112729512f8e442d81f95a8a7ddf2b7c6b8a1a6f509a95864142b30cab2d3"
 
 [[package]]
 name = "streamlog"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "client",
  "ctx",
@@ -1488,7 +1488,7 @@ dependencies = [
 
 [[package]]
 name = "templ"
-version = "0.1.0"
+version = "0.2.1"
 dependencies = [
  "serde",
 ]
@@ -1925,7 +1925,7 @@ checksum = "d135d17ab770252ad95e9a872d365cf3090e3be864a34ab46f48555993efc904"
 
 [[package]]
 name = "worker"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "artifact",
  "cellang",
