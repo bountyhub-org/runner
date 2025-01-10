@@ -1,11 +1,11 @@
 [package]
 name = "jobengine"
-version = "0.1.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
 authors = ["Nikola Jokic <jokicnikola07@gmail.com>"]
 resolver = "2"
 description = "Job engine for evaluating BountyHub job expressions"
-license = "MIT"
 readme = "README.md"
 keywords = ["bountyhub", "job", "engine"]
 

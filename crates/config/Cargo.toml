@@ -1,12 +1,13 @@
 [package]
 name = "config"
-version = "0.2.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
 authors = [ "Nikola Jokic <nikola.jokic@bountyhub.org>" ]
 description = "Configuration utility for BountyHub runner"
-license = "MIT"
 readme = "README.md"
 keywords = ["bountyhub", "runner", "config"]
+resolver = "2"
 
 [dependencies]
 error-stack = "^0.5"

@@ -1,13 +1,14 @@
 [package]
 name = "cli"
-version = "0.2.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
 authors = [ "Nikola Jokic <nikola.jokic@bountyhub.org>" ]
 description = "CLI app for BountyHub runner"
-license = "MIT"
 repository = "https://github.com/bountyhub-org/runner"
 readme = "README.md"
 keywords = ["bountyhub", "runner", "cli"]
+resolver = "2"
 
 [dependencies]
 clap = { version = "^4", features = ["derive"] }
