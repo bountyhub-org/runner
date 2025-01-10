@@ -2,7 +2,7 @@
 name = "jobengine"
 version = "0.1.0"
 edition = "2021"
-author = ["Nikola Jokic <jokicnikola07@gmail.com>"]
+authors = ["Nikola Jokic <jokicnikola07@gmail.com>"]
 resolver = "2"
 description = "Job engine for evaluating BountyHub job expressions"
 license = "MIT"
