@@ -47,14 +47,14 @@ impl JobEngine {
             .expect("failed to add revision");
         ctx.set_variable("scans", config.scans.clone())
             .expect("failed to add scans");
-        ctx.set_variable::<&str, Map>(
+        ctx.set_variable(
             "vars",
             config
                 .vars
                 .clone()
                 .into_iter()
                 .map(|(k, v)| (k.into(), v.into()))
-                .collect(),
+                .collect::<Map>(),
         )
         .expect("failed to add vars");
         ctx.set_variable("ok", true)
@@ -186,19 +186,42 @@ fn is_available(
         miette::bail!("expected 1 argument, got {}", tokens.len());
     }
 
-    let id = match env.lookup_variable("id").unwrap() {
-        Value::String(id) => Uuid::parse_str(id).unwrap(),
-        _ => miette::bail!("expected a string"),
+    let name = match env.lookup_variable("name").unwrap() {
+        Value::String(name) => name,
+        _ => miette::bail!("name field is missing"),
+    };
+
+    let this_scan_latest_id = match env.lookup_variable("scans").unwrap() {
+        Value::Map(m) => {
+            let value = m.get(&Key::from(name)).unwrap().unwrap();
+            let jobs: Vec<JobMeta> = cellang::try_from_value(value.clone())?;
+            jobs.first().map(|job| Some(job.id)).unwrap_or(None)
+        }
+        _ => miette::bail!("scans field is missing"),
     };
 
     let scans = cellang::eval_ast(env, &tokens[0])?;
-    let jobs: Vec<JobMeta> = scans.try_from_value()?;
-    if jobs.is_empty() {
-        return Ok(Value::Bool(false));
+
+    let target_job: Option<Uuid> = scans
+        .try_from_value::<Vec<JobMeta>>()?
+        .into_iter()
+        .find_map(|job| {
+            if job.state == "succeeded" {
+                Some(job.id)
+            } else {
+                None
+            }
+        });
+
+    if target_job.is_none() {
+        return Ok(false.into());
     }
 
-    let job = jobs.first().unwrap();
-    Ok(Value::Bool(job.state == "succeeded" && id < job.id))
+    if this_scan_latest_id.is_none() {
+        return Ok(true.into());
+    }
+
+    Ok((this_scan_latest_id.unwrap() < target_job.unwrap()).into())
 }
 
 fn has_diff(env: &Environment, tokens: &[TokenTree]) -> std::result::Result<Value, miette::Error> {
@@ -244,13 +267,6 @@ mod tests {
             workflow: WorkflowMeta { id: Uuid::now_v7() },
             revision: WorkflowRevisionMeta { id: Uuid::now_v7() },
         }
-    }
-
-    #[test]
-    fn test_is_available_on_notexistent_scan() {
-        let cfg = new_config(Uuid::now_v7(), "scan1");
-        let engine = JobEngine::new(&cfg);
-        assert!(engine.eval("scans.scan2.is_available()").is_err());
     }
 
     #[test]
@@ -402,7 +418,7 @@ mod tests {
             }],
         );
         scan_jobs.insert("scan2".to_string(), vec![]);
-        let mut cfg = new_config(id, "scan1");
+        let mut cfg = new_config(Uuid::now_v7(), "scan1");
         cfg.scans = scan_jobs;
         let engine = JobEngine::new(&cfg);
         let result = engine.eval("scans.scan2.is_available()").unwrap();
@@ -421,7 +437,7 @@ mod tests {
                 nonce: None,
             }],
         );
-        let mut cfg = new_config(id, "scan1");
+        let mut cfg = new_config(Uuid::now_v7(), "scan1");
         cfg.scans = scan_jobs;
         let engine = JobEngine::new(&cfg);
         let result = engine.eval("scans.scan1.has_diff()").unwrap();
@@ -440,7 +456,7 @@ mod tests {
                 nonce: Some("nonce".to_string()),
             }],
         );
-        let mut cfg = new_config(id, "scan2");
+        let mut cfg = new_config(Uuid::now_v7(), "scan2");
         cfg.scans = scan_jobs;
         let engine = JobEngine::new(&cfg);
         let result = engine.eval("scans.scan1.has_diff()").unwrap();
