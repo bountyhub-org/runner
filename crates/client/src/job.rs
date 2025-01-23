@@ -43,6 +43,7 @@ pub struct JobResolvedStepResponse {
     pub run: String,
     pub shell: String,
     pub cond: String,
+    pub allow_failed: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

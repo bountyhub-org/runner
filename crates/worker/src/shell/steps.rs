@@ -63,7 +63,6 @@ struct Step {
 
 impl Step {
     fn new(step: JobResolvedStepResponse, uploads: &Option<Vec<String>>) -> Self {
-        let cond = step.cond;
         let inner = match step.kind {
             StepKind::Setup => InnerStep::Setup,
             StepKind::Teardown => InnerStep::Teardown,
@@ -73,12 +72,13 @@ impl Step {
             StepKind::Command => InnerStep::Command(CommandStep {
                 run: step.run,
                 shell: step.shell,
+                allow_failed: step.allow_failed,
             }),
         };
 
         Self {
             id: step.id,
-            cond,
+            cond: step.cond,
             inner,
         }
     }
@@ -282,6 +282,7 @@ impl Step {
 struct CommandStep {
     run: String,
     shell: String,
+    allow_failed: bool,
 }
 
 impl CommandStep {
@@ -435,7 +436,11 @@ impl CommandStep {
             Err(err) => {
                 tracing::error!("Failed to wait for child process: {:?}", err);
                 return TimelineRequestStepState::Failed {
-                    outcome: TimelineRequestStepOutcome::Failed,
+                    outcome: if self.allow_failed {
+                        TimelineRequestStepOutcome::Succeeded
+                    } else {
+                        TimelineRequestStepOutcome::Failed
+                    },
                 };
             }
         };
@@ -650,6 +655,7 @@ mod tests {
                 cond: "always".to_string(),
                 run: "setup 'Hello, World!'".to_string(),
                 shell: "bh".to_string(),
+                allow_failed: false,
             },
             JobResolvedStepResponse {
                 id: Uuid::now_v7(),
@@ -657,6 +663,7 @@ mod tests {
                 cond: "always".to_string(),
                 run: "echo 'Hello, World!'".to_string(),
                 shell: "sh".to_string(),
+                allow_failed: false,
             },
             JobResolvedStepResponse {
                 id: Uuid::now_v7(),
@@ -664,6 +671,7 @@ mod tests {
                 cond: "ok".to_string(),
                 run: "echo 'Hello, World!'".to_string(),
                 shell: "sh".to_string(),
+                allow_failed: false,
             },
             JobResolvedStepResponse {
                 id: Uuid::now_v7(),
@@ -671,6 +679,7 @@ mod tests {
                 cond: "always".to_string(),
                 run: "upload".to_string(),
                 shell: "bh".to_string(),
+                allow_failed: false,
             },
             JobResolvedStepResponse {
                 id: Uuid::now_v7(),
@@ -678,6 +687,7 @@ mod tests {
                 cond: "always".to_string(),
                 run: "teardown".to_string(),
                 shell: "bh".to_string(),
+                allow_failed: false,
             },
         ];
 
@@ -827,6 +837,7 @@ mod tests {
         let step = CommandStep {
             run: "echo 'Hello, World!'".to_string(),
             shell: "sh".to_string(),
+            allow_failed: false,
         };
 
         let workdir = new_test_workdir();
@@ -853,6 +864,7 @@ mod tests {
         let step = CommandStep {
             run: "echo $HELLO_ENV".to_string(),
             shell: "sh".to_string(),
+            allow_failed: false,
         };
 
         let workdir = new_test_workdir();
@@ -883,6 +895,7 @@ mod tests {
         let step = CommandStep {
             run: "echo 'Hello, World!'".to_string(),
             shell: "bash --verbose".to_string(),
+            allow_failed: false,
         };
 
         let workdir = new_test_workdir();
@@ -920,10 +933,43 @@ mod tests {
     }
 
     #[test]
+    fn test_command_step_allow_failed() {
+        let step = CommandStep {
+            run: "exit 1".to_string(),
+            shell: "sh".to_string(),
+            allow_failed: true,
+        };
+
+        let workdir = new_test_workdir();
+        fs::create_dir_all(&workdir).expect("Failed to create workdir");
+        let job_execution_ctx = new_test_job_config();
+        let mut execution_ctx = ExecutionContext::new(
+            workdir,
+            Arc::new(vec![("HELLO_ENV".to_string(), "Hello, World!".to_string())]),
+            job_execution_ctx,
+        );
+
+        let step_id = Uuid::now_v7();
+        let (tx, rx) = mpsc::channel();
+        let result = step.run(ctx::background(), step_id, &mut execution_ctx, tx);
+        assert!(
+            matches!(
+                result,
+                TimelineRequestStepState::Failed {
+                    outcome: TimelineRequestStepOutcome::Failed
+                }
+            ),
+            "{:?}",
+            result
+        );
+    }
+
+    #[test]
     fn test_command_cancel() {
         let step = CommandStep {
             run: "sleep 10".to_string(),
             shell: "sh".to_string(),
+            allow_failed: false,
         };
 
         let workdir = new_test_workdir();
