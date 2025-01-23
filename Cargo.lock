@@ -205,8 +205,7 @@ dependencies = [
 [[package]]
 name = "cellang"
 version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1e3b87fe6db7106cac44048ff1d50e2067108a329cdc31f0843d4a976a7ddd76"
+source = "git+https://github.com/nikola-jokic/cellang?branch=main#064b03038ddd6db17b998e419b4f2a3e811c95d8"
 dependencies = [
  "base64",
  "miette",
@@ -1209,9 +1208,9 @@ dependencies = [
 
 [[package]]
 name = "rustix"
-version = "0.38.43"
+version = "0.38.44"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a78891ee6bf2340288408954ac787aa063d8e8817e9f53abb37c695c6d834ef6"
+checksum = "fdb5bc1ae2baa591800df16c9ca78619bf65c0488b41b96ccec5d11220d8c154"
 dependencies = [
  "bitflags",
  "errno",
