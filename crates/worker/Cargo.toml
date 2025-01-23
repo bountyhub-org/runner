@@ -19,7 +19,6 @@ client = { path = "../client" }
 ctx = { path = "../ctx" }
 templ = { path = "../templ" }
 artifact = { path = "../artifact" }
-streamlog = { path = "../streamlog" }
 jobengine = { path = "../jobengine" }
 
 [dev-dependencies]

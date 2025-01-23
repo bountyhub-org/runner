@@ -316,11 +316,11 @@ dependencies = [
  "error-stack",
  "jobengine",
  "mockall",
- "pipe",
  "recoil",
  "serde",
  "serde_json",
  "serde_repr",
+ "time",
  "tracing",
  "ureq",
  "uuid",
@@ -398,15 +398,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a97769d94ddab943e4510d138150169a2758b5ef3eb191a9ee688de3e23ef7b3"
 dependencies = [
  "cfg-if",
-]
-
-[[package]]
-name = "crossbeam-channel"
-version = "0.5.14"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "06ba6d68e24814cb8de6bb986db8222d3a027d15872cabc0d18817bc3c0e4471"
-dependencies = [
- "crossbeam-utils",
 ]
 
 [[package]]
@@ -1024,15 +1015,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3b3cff922bd51709b605d9ead9aa71031d81447142d828eb4a6eba76fe619f9b"
 
 [[package]]
-name = "pipe"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1c7b8f27da217eb966df4c58d4159ea939431950ca03cf782c22bd7c5c1d8d75"
-dependencies = [
- "crossbeam-channel",
-]
-
-[[package]]
 name = "pkg-config"
 version = "0.3.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1410,18 +1392,6 @@ name = "stable_deref_trait"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a8f112729512f8e442d81f95a8a7ddf2b7c6b8a1a6f509a95864142b30cab2d3"
-
-[[package]]
-name = "streamlog"
-version = "0.2.2"
-dependencies = [
- "client",
- "ctx",
- "pipe",
- "time",
- "tracing",
- "uuid",
-]
 
 [[package]]
 name = "strsim"
@@ -1936,7 +1906,6 @@ dependencies = [
  "jobengine",
  "mockall",
  "shlex",
- "streamlog",
  "templ",
  "time",
  "tracing",

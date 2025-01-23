@@ -6,9 +6,9 @@ use error_stack::{Report, Result, ResultExt};
 use jobengine::{JobMeta, ProjectMeta, WorkflowMeta, WorkflowRevisionMeta};
 #[cfg(feature = "mockall")]
 use mockall::mock;
-use pipe::PipeReader;
 use recoil::{Interval, Recoil, State};
 use serde::{Deserialize, Serialize};
+use serde_repr::{Deserialize_repr, Serialize_repr};
 use std::{
     collections::BTreeMap,
     fmt,
@@ -16,6 +16,7 @@ use std::{
     sync::{Arc, RwLock},
     time::Duration,
 };
+use time::OffsetDateTime;
 use ureq::Error as UreqError;
 use uuid::Uuid;
 
@@ -145,6 +146,22 @@ pub struct JobUploadRequest {
     size: u64,
 }
 
+#[derive(Debug, Clone, Copy, Serialize_repr, Deserialize_repr)]
+#[repr(u8)]
+pub enum LogDestination {
+    Stdout = 1,
+    Stderr = 2,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LogLine {
+    pub dst: LogDestination,
+    pub step_index: u32,
+    #[serde(with = "time::serde::rfc3339")]
+    pub timestamp: OffsetDateTime,
+    pub message: String,
+}
+
 pub trait JobClient: Send + Sync + Clone + 'static {
     fn resolve(&self, ctx: Ctx<Background>) -> Result<JobResolvedResponse, ClientError>;
     fn post_step_timeline(
@@ -152,11 +169,14 @@ pub trait JobClient: Send + Sync + Clone + 'static {
         ctx: Ctx<Background>,
         timeline: &TimelineRequest,
     ) -> Result<(), ClientError>;
-    fn stream_job_step_log(
+    fn send_job_logs(
         &self,
         ctx: Ctx<Background>,
-        step_ref: &StepRef,
-        reader: &mut PipeReader,
+        project_id: Uuid,
+        workflow_id: Uuid,
+        revision_id: Uuid,
+        job_id: Uuid,
+        logs: Vec<LogLine>,
     ) -> Result<(), ClientError>;
     fn upload_job_artifact(
         &self,
@@ -189,12 +209,16 @@ mock! {
     impl JobClient for JobClient {
         fn resolve(&self, ctx: Ctx<Background>) -> Result<JobResolvedResponse, ClientError>;
         fn post_step_timeline(&self, ctx: Ctx<Background>, timeline: &TimelineRequest) -> Result<(), ClientError>;
-        fn stream_job_step_log(
-            &self,
-            ctx: Ctx<Background>,
-            step_ref: &StepRef,
-            reader: &mut PipeReader,
-        ) -> Result<(), ClientError>;
+
+    fn send_job_logs(
+        &self,
+        ctx: Ctx<Background>,
+        project_id: Uuid,
+        workflow_id: Uuid,
+        revision_id: Uuid,
+        job_id: Uuid,
+        logs: Vec<LogLine>,
+    ) -> Result<(), ClientError>;
         fn upload_job_artifact(&self, ctx: Ctx<Background>, project_id: Uuid, workflow_id: Uuid, revision_id: Uuid, job_id: Uuid, file: File) -> Result<(), ClientError>;
     }
 
@@ -334,32 +358,29 @@ impl JobClient for HttpJobClient {
         }
     }
 
-    #[tracing::instrument(skip(self, _ctx, reader))]
-    fn stream_job_step_log(
+    fn send_job_logs(
         &self,
-        _ctx: Ctx<Background>,
-        step_ref: &StepRef,
-        reader: &mut PipeReader,
+        ctx: Ctx<Background>,
+        project_id: Uuid,
+        workflow_id: Uuid,
+        revision_id: Uuid,
+        job_id: Uuid,
+        logs: Vec<LogLine>,
     ) -> Result<(), ClientError> {
         let endpoint = {
             let config = self.config.read().unwrap();
             format!(
-                "{}/api/v0/invoker/projects/{}/workflows/{}/revisions/{}/jobs/{}/steps/{}/logs",
+                "{}/api/v0/invoker/projects/{project_id}/workflows/{workflow_id}/revisions/{revision_id}/jobs/{job_id}/logs",
                 &config.fluxy_url,
-                step_ref.project_id,
-                step_ref.workflow_id,
-                step_ref.revision_id,
-                step_ref.job_id,
-                step_ref.step_index
             )
         };
 
         let client = self.pool.stream_client();
         client
-            .put(&endpoint)
+            .patch(&endpoint)
             .set("Authorization", &self.token)
-            .set("Content-Type", "application/octet-stream")
-            .send(reader)
+            .set("Content-Type", "application/json")
+            .send_json(logs)
             .change_context(ClientError)
             .attach_printable("failed to stream logs")?;
 
