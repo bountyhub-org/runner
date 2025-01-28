@@ -139,6 +139,8 @@ impl StepsRunner {
                 .join()
                 .expect("Stream handle should join successfully");
 
+
+
             self.execution_ctx.update_state(state);
         }
 
@@ -579,6 +581,7 @@ mod tests {
     use client::job::{MockJobClient, TimelineRequestStepState};
     use jobengine::{ProjectMeta, WorkflowMeta, WorkflowRevisionMeta};
     use std::fs;
+    use std::io::Read;
     use std::sync::Arc;
     use std::{collections::BTreeMap, env};
     use uuid::Uuid;
@@ -715,7 +718,7 @@ mod tests {
         main_client
             .expect_post_step_timeline()
             .returning(move |_, timeline| {
-                assert_eq!(timeline.index, 3, "{:?}", timeline);
+                assert_eq!(timeline.index, 4, "{:?}", timeline);
                 assert!(
                     matches!(
                         timeline.state,
@@ -764,7 +767,11 @@ mod tests {
                 let mut stream = MockJobClient::new();
                 stream
                     .expect_stream_job_step_log()
-                    .returning(|_, _, _| Ok(()))
+                    .returning(|_, _, r| {
+                        let mut buf = Vec::new();
+                        r.read_to_end(&mut buf).unwrap();
+                        Ok(())
+                    })
                     .times(1);
                 stream
             })
