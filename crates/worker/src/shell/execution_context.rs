@@ -4,6 +4,7 @@ use jobengine::JobEngine;
 use std::sync::Arc;
 use uuid::Uuid;
 
+#[derive(Debug)]
 pub struct ExecutionContext {
     workdir: String,
     envs: Arc<Vec<(String, String)>>,
@@ -23,6 +24,11 @@ impl ExecutionContext {
             cfg,
             ok: true,
         }
+    }
+
+    #[inline]
+    pub fn ok(&self) -> bool {
+        return self.ok;
     }
 
     #[inline]

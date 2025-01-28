@@ -2,11 +2,10 @@ use super::execution_context::ExecutionContext;
 use artifact::ArtifactBuilder;
 use cellang::Value;
 use client::job::{
-    JobClient, JobResolvedStepResponse, StepKind, StepRef, TimelineRequest,
-    TimelineRequestStepOutcome, TimelineRequestStepState,
+    JobClient, Step, StepRef, TimelineRequest, TimelineRequestStepOutcome, TimelineRequestStepState,
 };
 use ctx::{Background, Ctx};
-use error_stack::{Context, Result, ResultExt};
+use error_stack::{Context, Report, Result, ResultExt};
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -20,209 +19,167 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 #[derive(Debug)]
-pub(crate) struct Steps {
+pub(crate) struct StepsRunner {
     steps: Vec<Step>,
+    execution_ctx: ExecutionContext,
 }
 
-impl Steps {
-    pub(crate) fn new(steps: Vec<JobResolvedStepResponse>, uploads: Option<Vec<String>>) -> Self {
-        let steps = steps
-            .into_iter()
-            .map(|step| Step::new(step, &uploads))
-            .collect();
-        Self { steps }
-    }
-
-    #[tracing::instrument(skip(self, ctx, execution_ctx, client))]
-    pub(crate) fn run<C>(
-        &mut self,
-        ctx: Ctx<Background>,
-        execution_ctx: &mut ExecutionContext,
-        client: &C,
-    ) -> Result<(), ExecutionError>
-    where
-        C: JobClient,
-    {
-        for step in self.steps.iter() {
-            tracing::debug!("Step: {:?}", step);
-            step.run(ctx.clone(), execution_ctx, client)
-                .change_context(ExecutionError)
-                .attach_printable("step failed with unrecoverable error")?;
+impl Drop for StepsRunner {
+    #[tracing::instrument(skip(self))]
+    fn drop(&mut self) {
+        // Teardown step should run but regardless of that, ensure that workdir is cleaned if
+        // something horrible happens
+        let workdir = self.execution_ctx.workdir();
+        if let Err(e) = fs::remove_dir_all(workdir) {
+            tracing::error!("Failed to remove on drop workdir '{workdir}': {e:?}");
         }
-
-        Ok(())
     }
 }
 
-#[derive(Debug)]
-struct Step {
-    id: Uuid,
-    cond: String,
-    inner: InnerStep,
-}
-
-impl Step {
-    fn new(step: JobResolvedStepResponse, uploads: &Option<Vec<String>>) -> Self {
-        let inner = match step.kind {
-            StepKind::Setup => InnerStep::Setup,
-            StepKind::Teardown => InnerStep::Teardown,
-            StepKind::Upload => InnerStep::Upload(UploadStep {
-                uploads: uploads.clone().unwrap_or_default(),
-            }),
-            StepKind::Command => InnerStep::Command(CommandStep {
-                run: step.run,
-                shell: step.shell,
-                allow_failed: step.allow_failed,
-            }),
-        };
-
+impl StepsRunner {
+    pub(crate) fn new(execution_ctx: ExecutionContext, steps: Vec<Step>) -> Self {
         Self {
-            id: step.id,
-            cond: step.cond,
-            inner,
+            steps,
+            execution_ctx,
         }
     }
 
-    #[tracing::instrument(skip(ctx, execution_ctx, client))]
-    pub(crate) fn run<C>(
-        &self,
-        ctx: Ctx<Background>,
-        execution_ctx: &mut ExecutionContext,
-        client: &C,
-    ) -> Result<(), StepError>
+    #[tracing::instrument(skip(self, ctx, client))]
+    pub(crate) fn run<C>(&mut self, ctx: Ctx<Background>, client: &C) -> Result<(), ExecutionError>
     where
         C: JobClient,
     {
-        let state = self.pre_run_step_state(ctx.clone(), execution_ctx);
-        tracing::info!("Pre run step({}) state: {}", self.id, state);
-        let req = TimelineRequest { id: self.id, state };
+        for (index, step) in self.steps.iter().enumerate() {
+            let ctx = &ctx;
+            tracing::debug!("Step: {:?}", step);
+            let index = index as u32;
+            match self.should_run_step(step) {
+                Ok(true) => {}
+                Ok(false) => continue,
+                Err(e) => {
+                    // If evaluation failed, which should not occur, fail the run
+                    tracing::debug!("Posting step {step:?} as failed");
+                    client
+                        .post_step_timeline(
+                            ctx.clone(),
+                            &TimelineRequest {
+                                index,
+                                state: TimelineRequestStepState::Failed {
+                                    outcome: TimelineRequestStepOutcome::Failed,
+                                },
+                            },
+                        )
+                        .change_context(ExecutionError)
+                        .attach_printable(format!("failed to post a timeline for step {index}"))?;
 
-        tracing::debug!("Posting timeline: {:?}", req);
-        client
-            .post_step_timeline(ctx.clone(), &req)
-            .change_context(StepError)
-            .attach_printable("failed to post timeline")?;
+                    return Err(e);
+                }
+            };
 
-        if state.is_done() {
-            execution_ctx.update_state(state);
-            return Ok(());
-        }
+            tracing::debug!("Posting step {step:?} as running");
+            client
+                .post_step_timeline(
+                    ctx.clone(),
+                    &TimelineRequest {
+                        index,
+                        state: TimelineRequestStepState::Running,
+                    },
+                )
+                .change_context(ExecutionError)
+                .attach_printable(format!("Failed to post step {index} as running "))?;
 
-        let step_ref = StepRef {
-            step_id: self.id,
-            job_id: execution_ctx.job_id(),
-            project_id: execution_ctx.project_id(),
-            workflow_id: execution_ctx.workflow_id(),
-            revision_id: execution_ctx.revision_id(),
-        };
-        let streamer = streamlog::Stream {
-            client: client.clone(),
-            step_ref,
-        };
+            tracing::debug!("Starting the log stream for step {step:?}");
 
-        let stream_handle = {
-            let (tx, rx) = mpsc::channel();
+            let step_ref = StepRef {
+                step_index: index,
+                job_id: self.execution_ctx.job_id(),
+                project_id: self.execution_ctx.project_id(),
+                workflow_id: self.execution_ctx.workflow_id(),
+                revision_id: self.execution_ctx.revision_id(),
+            };
+            let streamer = streamlog::Stream {
+                client: client.clone(),
+                step_ref,
+            };
+
             let stream_ctx = ctx.clone();
+            let (tx, rx) = mpsc::channel();
             let stream_handle = thread::spawn(move || streamer.stream(stream_ctx, rx));
 
-            tracing::info!("Executing step: {}", self.id);
-            let state = self.execute(ctx.clone(), execution_ctx, client.clone(), tx);
+            tracing::debug!("Starting step execution");
+            let state = match step {
+                Step::Setup => self.run_setup(ctx.clone(), tx),
+                Step::Teardown => self.run_teardown(ctx.clone(), tx),
+                Step::Upload { uploads } => {
+                    let step = UploadStep { uploads, client };
+                    step.run(ctx.clone(), &mut self.execution_ctx, tx)
+                }
+                Step::Command {
+                    run,
+                    shell,
+                    allow_failed,
+                    ..
+                } => {
+                    let cmd = CommandStep {
+                        run,
+                        shell,
+                        allow_failed: *allow_failed,
+                    };
 
-            tracing::info!("Step({}): {}", self.id, state);
-            execution_ctx.update_state(state);
+                    cmd.run(ctx.clone(), &mut self.execution_ctx, tx)
+                }
+            };
 
-            let req = TimelineRequest { id: self.id, state };
-
-            tracing::debug!("Posting timeline: {:?}", req);
             client
-                .post_step_timeline(ctx.clone(), &req)
-                .change_context(StepError)
-                .attach_printable("failed to post timeline")?;
+                .post_step_timeline(ctx.clone(), &TimelineRequest { index, state })
+                .change_context(ExecutionError)
+                .attach_printable(format!("Failed to post step's timeline for step {index}"))?;
 
             stream_handle
-        };
+                .join()
+                .expect("Stream handle should join successfully");
 
-        if let Err(err) = stream_handle.join() {
-            tracing::error!("Failed to join stream handle: {:?}", err);
+            self.execution_ctx.update_state(state);
         }
 
         Ok(())
     }
 
-    #[tracing::instrument(skip(ctx, execution_ctx, client, log_tx))]
-    fn execute<C>(
-        &self,
-        ctx: Ctx<Background>,
-        execution_ctx: &mut ExecutionContext,
-        client: C,
-        log_tx: mpsc::Sender<LogLine>,
-    ) -> TimelineRequestStepState
-    where
-        C: JobClient,
-    {
-        tracing::info!("Running step: {}", self.id);
-        match &self.inner {
-            InnerStep::Setup => self.run_setup(self.id, execution_ctx, log_tx),
-            InnerStep::Command(step) => step.run(ctx.clone(), self.id, execution_ctx, log_tx),
-            InnerStep::Upload(step) => {
-                step.run(ctx.clone(), self.id, execution_ctx, &client, log_tx)
-            }
-            InnerStep::Teardown => self.run_teardown(self.id, execution_ctx, log_tx),
+    #[tracing::instrument(skip(self))]
+    fn should_run_step(&self, step: &Step) -> Result<bool, ExecutionError> {
+        tracing::debug!("Evaluating condition for step: {step:?}");
+        match step {
+            Step::Command { cond, .. } => match self.execution_ctx.eval(cond) {
+                Ok(val) => match val {
+                    Value::Bool(v) => Ok(v),
+                    v => Err(Report::new(ExecutionError).attach_printable(format!(
+                        "Expected boolean expression in condition '{cond}', got {v:?}"
+                    ))),
+                },
+                Err(e) => Err(Report::new(ExecutionError)
+                    .attach_printable(format!("Condition evaluation failed: {e}"))),
+            },
+            Step::Upload { .. } => Ok(self.execution_ctx.ok()),
+            _ => Ok(true),
         }
     }
 
-    #[tracing::instrument(skip(_ctx, execution_ctx))]
-    fn pre_run_step_state(
-        &self,
-        _ctx: Ctx<Background>,
-        execution_ctx: &mut ExecutionContext,
-    ) -> TimelineRequestStepState {
-        tracing::info!("Evaluating step condition for step: {}", self.id);
-
-        let should_skip = match execution_ctx.eval(&self.cond) {
-            Ok(result) => result == false.into(),
-            Err(e) => {
-                tracing::error!("Failed to evaluate condition: {:?}", e);
-                return TimelineRequestStepState::Failed {
-                    outcome: TimelineRequestStepOutcome::Failed,
-                };
-            }
-        };
-
-        if should_skip {
-            tracing::info!("Skipping step: {}", self.id);
-            return TimelineRequestStepState::Skipped;
-        }
-
-        TimelineRequestStepState::Running
-    }
-}
-
-#[derive(Debug)]
-enum InnerStep {
-    Setup,
-    Command(CommandStep),
-    Upload(UploadStep),
-    Teardown,
-}
-
-impl Step {
-    #[tracing::instrument(skip(execution_ctx, log_tx))]
+    #[tracing::instrument(skip(self, _ctx, log_tx))]
     fn run_setup(
         &self,
-        id: Uuid,
-        execution_ctx: &mut ExecutionContext,
+        _ctx: Ctx<Background>,
         log_tx: mpsc::Sender<LogLine>,
     ) -> TimelineRequestStepState {
-        let workdir = execution_ctx.workdir();
-        tracing::info!("Creating workdir: {}", workdir);
+        let workdir = self.execution_ctx.workdir();
+        tracing::debug!("Running create_dir_all for workdir '{workdir}'");
+
         match fs::create_dir_all(workdir) {
             Ok(_) => {
                 log_tx
                     .send(LogLine {
                         dst: streamlog::LogDestination::Stdout,
                         timestamp: OffsetDateTime::now_utc(),
-                        message: format!("Created workdir: {}", workdir),
+                        message: format!("Created workdir: '{}'", workdir),
                     })
                     .unwrap_or_else(|err| tracing::error!("Failed to send log line: {:?}", err));
                 TimelineRequestStepState::Succeeded
@@ -235,6 +192,7 @@ impl Step {
                         message: format!("Failed to create workdir '{}': {}", workdir, e),
                     })
                     .unwrap_or_else(|err| tracing::error!("Failed to send log line: {:?}", err));
+
                 TimelineRequestStepState::Failed {
                     outcome: TimelineRequestStepOutcome::Failed,
                 }
@@ -242,14 +200,13 @@ impl Step {
         }
     }
 
-    #[tracing::instrument(skip(self, execution_ctx))]
+    #[tracing::instrument(skip(self, _ctx, log_tx))]
     fn run_teardown(
         &self,
-        id: Uuid,
-        execution_ctx: &mut ExecutionContext,
+        _ctx: Ctx<Background>,
         log_tx: mpsc::Sender<LogLine>,
     ) -> TimelineRequestStepState {
-        let workdir = execution_ctx.workdir();
+        let workdir = self.execution_ctx.workdir();
         tracing::info!("Removing workdir: {}", workdir);
         match fs::remove_dir_all(workdir) {
             Ok(_) => {
@@ -279,34 +236,32 @@ impl Step {
 }
 
 #[derive(Debug)]
-struct CommandStep {
-    run: String,
-    shell: String,
+struct CommandStep<'a> {
+    run: &'a str,
+    shell: &'a str,
     allow_failed: bool,
 }
 
-impl CommandStep {
+impl CommandStep<'_> {
     #[tracing::instrument(skip(ctx, execution_ctx, log_tx))]
     fn run(
         &self,
         ctx: Ctx<Background>,
-        id: Uuid,
         execution_ctx: &mut ExecutionContext,
         log_tx: mpsc::Sender<LogLine>,
     ) -> TimelineRequestStepState {
-        let mut shell_split = match shlex::split(&self.shell) {
-            Some(split) => {
-                if split.is_empty() {
-                    return TimelineRequestStepState::Failed {
-                        outcome: TimelineRequestStepOutcome::Failed,
-                    };
-                }
-                split
-            }
+        let mut shell_split = match shlex::split(self.shell) {
+            Some(split) => split,
             None => {
-                return TimelineRequestStepState::Failed {
-                    outcome: TimelineRequestStepOutcome::Failed,
-                }
+                log_tx
+                    .send(LogLine {
+                        dst: streamlog::LogDestination::Stderr,
+                        timestamp: OffsetDateTime::now_utc(),
+                        message: format!("Spliting shell '{}' using shlex failed", self.shell),
+                    })
+                    .unwrap_or_else(|err| tracing::error!("Failed to send log line: {:?}", err));
+
+                return self.fail();
             }
         };
 
@@ -320,11 +275,11 @@ impl CommandStep {
                         message: format!("Failed to write script: {}", err),
                     })
                     .unwrap_or_else(|err| tracing::error!("Failed to send log line: {:?}", err));
-                return TimelineRequestStepState::Failed {
-                    outcome: TimelineRequestStepOutcome::Failed,
-                };
+
+                return self.fail();
             }
         };
+
         shell_split.push(
             script_path
                 .file_name()
@@ -341,14 +296,12 @@ impl CommandStep {
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());
 
-        tracing::info!("Spawning command: {:?}", cmd);
+        tracing::info!("Spawning command: {cmd:?}");
         let mut child = match cmd.spawn() {
             Ok(child) => child,
             Err(err) => {
-                tracing::error!("Failed to spawn child process: {}", err);
-                return TimelineRequestStepState::Failed {
-                    outcome: TimelineRequestStepOutcome::Failed,
-                };
+                tracing::error!("Failed to spawn child process: {err:?}");
+                return self.fail();
             }
         };
 
@@ -425,9 +378,7 @@ impl CommandStep {
                         .unwrap_or_else(|err| {
                             tracing::error!("Failed to send log line: {:?}", err)
                         });
-                    return TimelineRequestStepState::Failed {
-                        outcome: TimelineRequestStepOutcome::Failed,
-                    };
+                    return self.fail();
                 }
             }
         }
@@ -435,13 +386,7 @@ impl CommandStep {
             Ok(out) => out.code().unwrap_or(1),
             Err(err) => {
                 tracing::error!("Failed to wait for child process: {:?}", err);
-                return TimelineRequestStepState::Failed {
-                    outcome: if self.allow_failed {
-                        TimelineRequestStepOutcome::Succeeded
-                    } else {
-                        TimelineRequestStepOutcome::Failed
-                    },
-                };
+                1
             }
         };
 
@@ -449,12 +394,22 @@ impl CommandStep {
         stderr_handle.join().expect("Failed to join stderr handle");
 
         if exit_code != 0 {
-            return TimelineRequestStepState::Failed {
-                outcome: TimelineRequestStepOutcome::Failed,
-            };
+            self.fail()
+        } else {
+            TimelineRequestStepState::Succeeded
         }
+    }
 
-        TimelineRequestStepState::Succeeded
+    fn fail(&self) -> TimelineRequestStepState {
+        if self.allow_failed {
+            TimelineRequestStepState::Failed {
+                outcome: TimelineRequestStepOutcome::Succeeded,
+            }
+        } else {
+            TimelineRequestStepState::Failed {
+                outcome: TimelineRequestStepOutcome::Failed,
+            }
+        }
     }
 
     fn write_script(
@@ -513,24 +468,25 @@ impl CommandStep {
     }
 }
 
-#[derive(Debug)]
-struct UploadStep {
-    uploads: Vec<String>,
+struct UploadStep<'a, C>
+where
+    C: JobClient,
+{
+    uploads: &'a Vec<String>,
+    client: &'a C,
 }
 
-impl UploadStep {
-    #[tracing::instrument(skip(ctx, execution_ctx, client))]
-    fn run<C>(
+impl<C> UploadStep<'_, C>
+where
+    C: JobClient,
+{
+    #[tracing::instrument(skip(self, ctx, execution_ctx))]
+    fn run(
         &self,
         ctx: Ctx<Background>,
-        id: Uuid,
         execution_ctx: &mut ExecutionContext,
-        client: &C,
         log_tx: mpsc::Sender<LogLine>,
-    ) -> TimelineRequestStepState
-    where
-        C: JobClient,
-    {
+    ) -> TimelineRequestStepState {
         let artifact_builder = ArtifactBuilder {
             uploads: self.uploads.clone(),
             root_dir: PathBuf::from(&execution_ctx.workdir()),
@@ -559,7 +515,7 @@ impl UploadStep {
         };
 
         tracing::info!("Uploading job result");
-        match client.upload_job_artifact(
+        match self.client.upload_job_artifact(
             ctx.clone(),
             execution_ctx.project_id(),
             execution_ctx.workflow_id(),
@@ -620,7 +576,7 @@ impl Context for ExecutionError {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use client::job::{MockJobClient, StepKind, TimelineRequestStepState};
+    use client::job::{MockJobClient, TimelineRequestStepState};
     use jobengine::{ProjectMeta, WorkflowMeta, WorkflowRevisionMeta};
     use std::fs;
     use std::sync::Arc;
@@ -647,105 +603,14 @@ mod tests {
     }
 
     #[test]
-    fn test_steps_new() {
-        let resolved_steps = vec![
-            JobResolvedStepResponse {
-                id: Uuid::now_v7(),
-                kind: StepKind::Setup,
-                cond: "always".to_string(),
-                run: "setup 'Hello, World!'".to_string(),
-                shell: "bh".to_string(),
-                allow_failed: false,
-            },
-            JobResolvedStepResponse {
-                id: Uuid::now_v7(),
-                kind: StepKind::Command,
-                cond: "always".to_string(),
-                run: "echo 'Hello, World!'".to_string(),
-                shell: "sh".to_string(),
-                allow_failed: false,
-            },
-            JobResolvedStepResponse {
-                id: Uuid::now_v7(),
-                kind: StepKind::Command,
-                cond: "ok".to_string(),
-                run: "echo 'Hello, World!'".to_string(),
-                shell: "sh".to_string(),
-                allow_failed: false,
-            },
-            JobResolvedStepResponse {
-                id: Uuid::now_v7(),
-                kind: StepKind::Upload,
-                cond: "always".to_string(),
-                run: "upload".to_string(),
-                shell: "bh".to_string(),
-                allow_failed: false,
-            },
-            JobResolvedStepResponse {
-                id: Uuid::now_v7(),
-                kind: StepKind::Teardown,
-                cond: "always".to_string(),
-                run: "teardown".to_string(),
-                shell: "bh".to_string(),
-                allow_failed: false,
-            },
-        ];
-
-        let uploads = Some(vec!["artifact1".to_string(), "artifact2".to_string()]);
-
-        let steps = Steps::new(resolved_steps.clone(), uploads.clone());
-
-        assert_eq!(steps.steps.len(), resolved_steps.len());
-
-        let setup_step = &steps.steps[0];
-        assert_eq!(setup_step.id, resolved_steps[0].id);
-        assert_eq!(setup_step.cond, "always");
-        assert!(matches!(setup_step.inner, InnerStep::Setup));
-
-        let command_step = &steps.steps[1];
-        assert_eq!(command_step.id, resolved_steps[1].id);
-        assert_eq!(command_step.cond, "always");
-        assert!(matches!(
-            command_step.inner,
-            InnerStep::Command(CommandStep { .. })
-        ));
-
-        let command_step = &steps.steps[2];
-        assert_eq!(command_step.id, resolved_steps[2].id);
-        assert_eq!(command_step.cond, "ok");
-        assert!(matches!(
-            command_step.inner,
-            InnerStep::Command(CommandStep { .. })
-        ));
-
-        let upload_step = &steps.steps[3];
-        assert_eq!(upload_step.id, resolved_steps[3].id);
-        assert_eq!(upload_step.cond, "always");
-        assert!(matches!(
-            upload_step.inner,
-            InnerStep::Upload(UploadStep { .. })
-        ));
-
-        let teardown_step = &steps.steps[4];
-        assert_eq!(teardown_step.id, resolved_steps[4].id);
-        assert_eq!(teardown_step.cond, "always");
-        assert!(matches!(teardown_step.inner, InnerStep::Teardown));
-    }
-
-    #[test]
-    fn test_setup_step() {
-        let step = Step {
-            id: Uuid::now_v7(),
-            cond: "always".to_string(),
-            inner: InnerStep::Setup,
-        };
-
-        let id = step.id;
+    fn test_step_timeline_posting() {
         let mut main_client = MockJobClient::new();
+
+        // Setup step running
         main_client
             .expect_post_step_timeline()
             .returning(move |_, timeline| {
-                assert_eq!(timeline.id, id, "{:?}", timeline);
+                assert_eq!(timeline.index, 0, "{:?}", timeline);
                 assert!(
                     matches!(timeline.state, TimelineRequestStepState::Running),
                     "{:?}",
@@ -755,11 +620,11 @@ mod tests {
             })
             .once();
 
-        let id = step.id;
+        // Setup step succeeded
         main_client
             .expect_post_step_timeline()
             .returning(move |_, timeline| {
-                assert_eq!(timeline.id, id, "{:?}", timeline);
+                assert_eq!(timeline.index, 0, "{:?}", timeline);
                 assert!(
                     matches!(timeline.state, TimelineRequestStepState::Succeeded { .. }),
                     "{:?}",
@@ -769,74 +634,185 @@ mod tests {
             })
             .once();
 
+        // Command step running
+        main_client
+            .expect_post_step_timeline()
+            .returning(move |_, timeline| {
+                assert_eq!(timeline.index, 1, "{:?}", timeline);
+                assert!(
+                    matches!(timeline.state, TimelineRequestStepState::Running),
+                    "{:?}",
+                    timeline
+                );
+                Ok(())
+            })
+            .once();
+
+        // Command step succeeded
+        main_client
+            .expect_post_step_timeline()
+            .returning(move |_, timeline| {
+                assert_eq!(timeline.index, 1, "{:?}", timeline);
+                assert!(
+                    matches!(timeline.state, TimelineRequestStepState::Succeeded { .. }),
+                    "{:?}",
+                    timeline
+                );
+                Ok(())
+            })
+            .once();
+
+        // Step index 2 is skipped
+
+        // Step index 3 is running
+        main_client
+            .expect_post_step_timeline()
+            .returning(move |_, timeline| {
+                assert_eq!(timeline.index, 3, "{:?}", timeline);
+                assert!(
+                    matches!(timeline.state, TimelineRequestStepState::Running),
+                    "{:?}",
+                    timeline
+                );
+                Ok(())
+            })
+            .once();
+
+        // Step index 3 is failed with allow_failed
+        main_client
+            .expect_post_step_timeline()
+            .returning(move |_, timeline| {
+                assert_eq!(timeline.index, 3, "{:?}", timeline);
+                assert!(
+                    matches!(
+                        timeline.state,
+                        TimelineRequestStepState::Failed {
+                            outcome: TimelineRequestStepOutcome::Succeeded
+                        }
+                    ),
+                    "{:?}",
+                    timeline
+                );
+                Ok(())
+            })
+            .once();
+
+        // Step index 4 is running
+        main_client
+            .expect_post_step_timeline()
+            .returning(move |_, timeline| {
+                assert_eq!(timeline.index, 4, "{:?}", timeline);
+                assert!(
+                    matches!(timeline.state, TimelineRequestStepState::Running),
+                    "{:?}",
+                    timeline
+                );
+                Ok(())
+            })
+            .once();
+
+        // Step index 4 is failed
+        main_client
+            .expect_post_step_timeline()
+            .returning(move |_, timeline| {
+                assert_eq!(timeline.index, 3, "{:?}", timeline);
+                assert!(
+                    matches!(
+                        timeline.state,
+                        TimelineRequestStepState::Failed {
+                            outcome: TimelineRequestStepOutcome::Failed
+                        }
+                    ),
+                    "{:?}",
+                    timeline
+                );
+                Ok(())
+            })
+            .once();
+
+        // Step index 5 is executed since it is teardown
+        main_client
+            .expect_post_step_timeline()
+            .returning(move |_, timeline| {
+                assert_eq!(timeline.index, 5, "{:?}", timeline);
+                assert!(
+                    matches!(timeline.state, TimelineRequestStepState::Running),
+                    "{:?}",
+                    timeline
+                );
+                Ok(())
+            })
+            .once();
+
+        // Step index 5 is failed
+        main_client
+            .expect_post_step_timeline()
+            .returning(move |_, timeline| {
+                assert_eq!(timeline.index, 5, "{:?}", timeline);
+                assert!(
+                    matches!(timeline.state, TimelineRequestStepState::Succeeded),
+                    "{:?}",
+                    timeline
+                );
+                Ok(())
+            })
+            .once();
+
         main_client
             .expect_clone()
-            .returning(MockJobClient::new)
-            .times(2);
+            .returning(|| {
+                let mut stream = MockJobClient::new();
+                stream
+                    .expect_stream_job_step_log()
+                    .returning(|_, _, _| Ok(()))
+                    .times(1);
+                stream
+            })
+            .times(1..);
 
-        let mut execution_ctx =
+        let execution_ctx =
             ExecutionContext::new(new_test_workdir(), Arc::new(vec![]), new_test_job_config());
 
-        let result = step.run(ctx::background(), &mut execution_ctx, &main_client);
-        assert!(result.is_ok(), "{:?}", result);
-    }
-
-    #[test]
-    fn test_teardown_step() {
-        let workdir = new_test_workdir();
-        let job_execution_ctx = new_test_job_config();
-        let step = Step {
-            id: Uuid::now_v7(),
-            cond: "always".to_string(),
-            inner: InnerStep::Teardown,
-        };
-        fs::create_dir_all(&workdir).expect("Failed to create workdir");
-
-        let mut main_client = MockJobClient::new();
-        let id = step.id;
-        main_client
-            .expect_post_step_timeline()
-            .returning(move |_, timeline| {
-                assert_eq!(timeline.id, id, "{:?}", timeline);
-                assert!(
-                    matches!(timeline.state, TimelineRequestStepState::Running),
-                    "{:?}",
-                    timeline
-                );
-                Ok(())
-            })
-            .once();
-
-        let id = step.id;
-        main_client
-            .expect_post_step_timeline()
-            .returning(move |_, timeline| {
-                assert_eq!(timeline.id, id, "{:?}", timeline);
-                assert!(
-                    matches!(timeline.state, TimelineRequestStepState::Succeeded { .. }),
-                    "{:?}",
-                    timeline
-                );
-                Ok(())
-            })
-            .once();
-
-        main_client
-            .expect_clone()
-            .returning(MockJobClient::new)
-            .times(2);
-
-        let mut execution_ctx = ExecutionContext::new(workdir, Arc::new(vec![]), job_execution_ctx);
-
-        let result = step.run(ctx::background(), &mut execution_ctx, &main_client);
+        let mut runner = StepsRunner::new(
+            execution_ctx,
+            vec![
+                Step::Setup,
+                Step::Command {
+                    cond: "true".to_string(),
+                    run: "echo 'hello'".to_string(),
+                    shell: "bash".to_string(),
+                    allow_failed: false,
+                },
+                Step::Command {
+                    cond: "false".to_string(),
+                    run: "exit 1".to_string(),
+                    shell: "sh".to_string(),
+                    allow_failed: true,
+                },
+                Step::Command {
+                    cond: "true".to_string(),
+                    run: "exit 1".to_string(),
+                    shell: "sh".to_string(),
+                    allow_failed: true,
+                },
+                Step::Command {
+                    cond: "true".to_string(),
+                    run: "exit 1".to_string(),
+                    shell: "sh".to_string(),
+                    allow_failed: false,
+                },
+                Step::Teardown,
+            ],
+        );
+        let result = runner.run(ctx::background(), &main_client);
         assert!(result.is_ok(), "{:?}", result);
     }
 
     #[test]
     fn test_command_step_hello_world() {
         let step = CommandStep {
-            run: "echo 'Hello, World!'".to_string(),
-            shell: "sh".to_string(),
+            run: "echo 'Hello, World!'",
+            shell: "sh",
             allow_failed: false,
         };
 
@@ -846,8 +822,7 @@ mod tests {
         let mut execution_ctx = ExecutionContext::new(workdir, Arc::new(vec![]), job_execution_ctx);
 
         let (tx, rx) = mpsc::channel();
-        let step_id = Uuid::now_v7();
-        let result = step.run(ctx::background(), step_id, &mut execution_ctx, tx);
+        let result = step.run(ctx::background(), &mut execution_ctx, tx);
         assert!(
             matches!(result, TimelineRequestStepState::Succeeded),
             "{:?}",
@@ -862,8 +837,8 @@ mod tests {
     #[test]
     fn test_command_step_env_propagation() {
         let step = CommandStep {
-            run: "echo $HELLO_ENV".to_string(),
-            shell: "sh".to_string(),
+            run: "echo $HELLO_ENV",
+            shell: "sh",
             allow_failed: false,
         };
 
@@ -876,9 +851,8 @@ mod tests {
             job_execution_ctx,
         );
 
-        let step_id = Uuid::now_v7();
         let (tx, rx) = mpsc::channel();
-        let result = step.run(ctx::background(), step_id, &mut execution_ctx, tx);
+        let result = step.run(ctx::background(), &mut execution_ctx, tx);
         assert!(
             matches!(result, TimelineRequestStepState::Succeeded),
             "{:?}",
@@ -893,8 +867,8 @@ mod tests {
     #[test]
     fn test_complex_shell() {
         let step = CommandStep {
-            run: "echo 'Hello, World!'".to_string(),
-            shell: "bash --verbose".to_string(),
+            run: "echo 'Hello, World!'",
+            shell: "bash --verbose",
             allow_failed: false,
         };
 
@@ -903,9 +877,8 @@ mod tests {
         let job_execution_ctx = new_test_job_config();
         let mut execution_ctx = ExecutionContext::new(workdir, Arc::new(vec![]), job_execution_ctx);
 
-        let step_id = Uuid::now_v7();
         let (tx, rx) = mpsc::channel();
-        let result = step.run(ctx::background(), step_id, &mut execution_ctx, tx);
+        let result = step.run(ctx::background(), &mut execution_ctx, tx);
         assert!(
             matches!(result, TimelineRequestStepState::Succeeded),
             "{:?}",
@@ -935,8 +908,8 @@ mod tests {
     #[test]
     fn test_command_step_allow_failed() {
         let step = CommandStep {
-            run: "exit 1".to_string(),
-            shell: "sh".to_string(),
+            run: "exit 1",
+            shell: "sh",
             allow_failed: true,
         };
 
@@ -949,14 +922,13 @@ mod tests {
             job_execution_ctx,
         );
 
-        let step_id = Uuid::now_v7();
-        let (tx, rx) = mpsc::channel();
-        let result = step.run(ctx::background(), step_id, &mut execution_ctx, tx);
+        let (tx, _rx) = mpsc::channel();
+        let result = step.run(ctx::background(), &mut execution_ctx, tx);
         assert!(
             matches!(
                 result,
                 TimelineRequestStepState::Failed {
-                    outcome: TimelineRequestStepOutcome::Failed
+                    outcome: TimelineRequestStepOutcome::Succeeded
                 }
             ),
             "{:?}",
@@ -967,8 +939,8 @@ mod tests {
     #[test]
     fn test_command_cancel() {
         let step = CommandStep {
-            run: "sleep 10".to_string(),
-            shell: "sh".to_string(),
+            run: "sleep 2",
+            shell: "sh",
             allow_failed: false,
         };
 
@@ -981,12 +953,15 @@ mod tests {
         let ctx = background.with_cancel();
 
         let step_ctx = ctx.to_background();
-        let step_id = Uuid::now_v7();
         let (tx, rx) = mpsc::channel();
-        let handle = thread::spawn(move || step.run(step_ctx, step_id, &mut execution_ctx, tx));
+        let handle = thread::spawn(move || step.run(step_ctx, &mut execution_ctx, tx));
 
         thread::sleep(Duration::from_millis(500));
         ctx.cancel();
+
+        thread::sleep(Duration::from_millis(500));
+        assert!(handle.is_finished());
+
         let result = handle.join().expect("failed to join step handle");
         assert!(matches!(result, TimelineRequestStepState::Cancelled));
 

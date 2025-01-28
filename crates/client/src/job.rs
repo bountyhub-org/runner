@@ -9,7 +9,6 @@ use mockall::mock;
 use pipe::PipeReader;
 use recoil::{Interval, Recoil, State};
 use serde::{Deserialize, Serialize};
-use serde_repr::{Deserialize_repr, Serialize_repr};
 use std::{
     collections::BTreeMap,
     fmt,
@@ -22,28 +21,23 @@ use uuid::Uuid;
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct JobResolvedResponse {
-    pub steps: Vec<JobResolvedStepResponse>,
-    pub uploads: Option<Vec<String>>,
+    pub steps: Vec<Step>,
     pub cfg: jobengine::Config,
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize_repr, Deserialize_repr, Copy)]
-#[repr(u8)]
-pub enum StepKind {
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
+pub enum Step {
     Setup,
     Teardown,
-    Upload,
-    Command,
-}
-
-#[derive(Deserialize, Debug, Clone)]
-pub struct JobResolvedStepResponse {
-    pub id: Uuid,
-    pub kind: StepKind,
-    pub run: String,
-    pub shell: String,
-    pub cond: String,
-    pub allow_failed: bool,
+    Upload {
+        uploads: Vec<String>,
+    },
+    Command {
+        cond: String,
+        run: String,
+        shell: String,
+        allow_failed: bool,
+    },
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -79,7 +73,7 @@ pub struct RevisionContext {
 
 #[derive(Debug, Serialize)]
 pub struct TimelineRequest {
-    pub id: Uuid,
+    pub index: u32,
     pub state: TimelineRequestStepState,
 }
 
@@ -172,7 +166,7 @@ pub struct StepRef {
     pub workflow_id: Uuid,
     pub revision_id: Uuid,
     pub job_id: Uuid,
-    pub step_id: Uuid,
+    pub step_index: u32,
 }
 
 #[cfg(feature = "mockall")]
@@ -347,7 +341,7 @@ impl JobClient for HttpJobClient {
                 step_ref.workflow_id,
                 step_ref.revision_id,
                 step_ref.job_id,
-                step_ref.step_id
+                step_ref.step_index
             )
         };
 

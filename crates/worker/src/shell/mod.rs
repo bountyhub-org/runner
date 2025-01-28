@@ -6,7 +6,7 @@ use client::runner::JobAcquiredResponse;
 use ctx::{Background, Ctx};
 use error_stack::{Result, ResultExt};
 use std::{path::Path, sync::Arc};
-use steps::Steps;
+use steps::StepsRunner;
 
 pub mod execution_context;
 pub mod steps;
@@ -44,15 +44,15 @@ where
             .to_string();
 
         let job_name = job.cfg.name.clone();
-        let mut execution_context = ExecutionContext::new(workdir, self.envs.clone(), job.cfg);
+        let execution_context = ExecutionContext::new(workdir, self.envs.clone(), job.cfg);
 
         tracing::info!("Building steps");
-        let mut steps = Steps::new(job.steps, job.uploads);
+        let mut steps = StepsRunner::new(execution_context, job.steps);
         tracing::debug!("Built steps: {:?}", steps);
 
         tracing::info!("Running job: {}", job_name);
         steps
-            .run(ctx.clone(), &mut execution_context, &self.client)
+            .run(ctx.clone(), &self.client)
             .change_context(WorkerError)
             .attach_printable("steps.run failed")
     }

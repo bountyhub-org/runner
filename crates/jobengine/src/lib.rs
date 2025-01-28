@@ -26,6 +26,7 @@ pub struct Config {
 
 /// JobEngine is a wrapper around the CEL interpreter that provides a context
 /// with the necessary variables and functions to evaluate expressions.
+#[derive(Debug)]
 pub struct JobEngine {
     ctx: EnvironmentBuilder<'static>,
 }
