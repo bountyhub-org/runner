@@ -20,12 +20,14 @@ use ureq::Error as UreqError;
 use uuid::Uuid;
 
 #[derive(Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct JobResolvedResponse {
     pub steps: Vec<Step>,
     pub cfg: jobengine::Config,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
 pub enum Step {
     Setup,
     Teardown,
@@ -41,6 +43,7 @@ pub enum Step {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct JobExecutionContext {
     pub scans: BTreeMap<String, Vec<JobMeta>>,
     pub vars: BTreeMap<String, String>,
@@ -50,6 +53,7 @@ pub struct JobExecutionContext {
 }
 
 #[derive(Serialize, Debug, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct JobContext {
     pub id: Uuid,
     pub state: String,
@@ -57,28 +61,32 @@ pub struct JobContext {
 }
 
 #[derive(Serialize, Debug, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct ProjectContext {
     pub id: Uuid,
 }
 
 #[derive(Serialize, Debug, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct WorkflowContext {
     pub id: Uuid,
 }
 
 #[derive(Serialize, Debug, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct RevisionContext {
     pub id: Uuid,
 }
 
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TimelineRequest {
     pub index: u32,
     pub state: TimelineRequestStepState,
 }
 
 #[derive(Debug, Serialize, Copy, Clone)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "camelCase")]
 #[serde(tag = "state", content = "outcome")]
 pub enum TimelineRequestStepState {
     Running,
@@ -115,6 +123,7 @@ impl TimelineRequestStepState {
 }
 
 #[derive(Debug, Serialize, Copy, Clone)]
+#[serde(rename_all = "camelCase")]
 pub enum TimelineRequestStepOutcome {
     Succeeded,
     Failed,

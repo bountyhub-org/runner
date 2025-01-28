@@ -24,18 +24,6 @@ pub(crate) struct StepsRunner {
     execution_ctx: ExecutionContext,
 }
 
-impl Drop for StepsRunner {
-    #[tracing::instrument(skip(self))]
-    fn drop(&mut self) {
-        // Teardown step should run but regardless of that, ensure that workdir is cleaned if
-        // something horrible happens
-        let workdir = self.execution_ctx.workdir();
-        if let Err(e) = fs::remove_dir_all(workdir) {
-            tracing::error!("Failed to remove on drop workdir '{workdir}': {e:?}");
-        }
-    }
-}
-
 impl StepsRunner {
     pub(crate) fn new(execution_ctx: ExecutionContext, steps: Vec<Step>) -> Self {
         Self {
@@ -138,8 +126,6 @@ impl StepsRunner {
             stream_handle
                 .join()
                 .expect("Stream handle should join successfully");
-
-
 
             self.execution_ctx.update_state(state);
         }
