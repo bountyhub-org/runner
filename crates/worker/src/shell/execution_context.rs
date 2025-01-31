@@ -28,7 +28,7 @@ impl ExecutionContext {
 
     #[inline]
     pub fn ok(&self) -> bool {
-        return self.ok;
+        self.ok
     }
 
     #[inline]
