@@ -169,24 +169,8 @@ pub trait JobClient: Send + Sync + Clone + 'static {
         ctx: Ctx<Background>,
         timeline: &TimelineRequest,
     ) -> Result<(), ClientError>;
-    fn send_job_logs(
-        &self,
-        ctx: Ctx<Background>,
-        project_id: Uuid,
-        workflow_id: Uuid,
-        revision_id: Uuid,
-        job_id: Uuid,
-        logs: Vec<LogLine>,
-    ) -> Result<(), ClientError>;
-    fn upload_job_artifact(
-        &self,
-        ctx: Ctx<Background>,
-        project_id: Uuid,
-        workflow_id: Uuid,
-        revision_id: Uuid,
-        job_id: Uuid,
-        file: File,
-    ) -> Result<(), ClientError>;
+    fn send_job_logs(&self, ctx: Ctx<Background>, logs: Vec<LogLine>) -> Result<(), ClientError>;
+    fn upload_job_artifact(&self, ctx: Ctx<Background>, file: File) -> Result<(), ClientError>;
 }
 
 #[derive(Debug, Clone)]
@@ -213,13 +197,9 @@ mock! {
     fn send_job_logs(
         &self,
         ctx: Ctx<Background>,
-        project_id: Uuid,
-        workflow_id: Uuid,
-        revision_id: Uuid,
-        job_id: Uuid,
         logs: Vec<LogLine>,
     ) -> Result<(), ClientError>;
-        fn upload_job_artifact(&self, ctx: Ctx<Background>, project_id: Uuid, workflow_id: Uuid, revision_id: Uuid, job_id: Uuid, file: File) -> Result<(), ClientError>;
+        fn upload_job_artifact(&self, ctx: Ctx<Background>, file: File) -> Result<(), ClientError>;
     }
 
 }
@@ -358,21 +338,10 @@ impl JobClient for HttpJobClient {
         }
     }
 
-    fn send_job_logs(
-        &self,
-        ctx: Ctx<Background>,
-        project_id: Uuid,
-        workflow_id: Uuid,
-        revision_id: Uuid,
-        job_id: Uuid,
-        logs: Vec<LogLine>,
-    ) -> Result<(), ClientError> {
+    fn send_job_logs(&self, ctx: Ctx<Background>, logs: Vec<LogLine>) -> Result<(), ClientError> {
         let endpoint = {
             let config = self.config.read().unwrap();
-            format!(
-                "{}/api/v0/invoker/projects/{project_id}/workflows/{workflow_id}/revisions/{revision_id}/jobs/{job_id}/logs",
-                &config.fluxy_url,
-            )
+            format!("{}/api/v0/jobs/logs", &config.fluxy_url,)
         };
 
         let client = self.pool.stream_client();
@@ -388,21 +357,10 @@ impl JobClient for HttpJobClient {
     }
 
     #[tracing::instrument(skip(self, ctx))]
-    fn upload_job_artifact(
-        &self,
-        ctx: Ctx<Background>,
-        project_id: Uuid,
-        workflow_id: Uuid,
-        revision_id: Uuid,
-        job_id: Uuid,
-        file: File,
-    ) -> Result<(), ClientError> {
+    fn upload_job_artifact(&self, ctx: Ctx<Background>, file: File) -> Result<(), ClientError> {
         let endpoint = {
             let config = self.config.read().unwrap();
-            format!(
-                "{}/api/v0/invoker/projects/{}/workflows/{}/revisions/{}/jobs/{}/results",
-                &config.fluxy_url, project_id, workflow_id, revision_id, job_id
-            )
+            format!("{}/api/v0/jobs/results", &config.fluxy_url)
         };
         let retry = || ctx.is_done();
         let mut recoil = self.recoil.clone();

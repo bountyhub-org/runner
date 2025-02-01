@@ -41,12 +41,6 @@ impl StepsRunner {
         {
             let (tx, rx) = mpsc::channel();
             let log_client = client.clone();
-            let (project_id, workflow_id, revision_id, job_id) = (
-                self.execution_ctx.project_id(),
-                self.execution_ctx.workflow_id(),
-                self.execution_ctx.revision_id(),
-                self.execution_ctx.job_id(),
-            );
             let log_ctx = ctx.clone();
             stream_handle = thread::spawn(move || {
                 let mut buffer = Vec::with_capacity(64);
@@ -67,14 +61,7 @@ impl StepsRunner {
                         continue;
                     }
 
-                    if let Err(e) = log_client.send_job_logs(
-                        log_ctx.clone(),
-                        project_id,
-                        workflow_id,
-                        revision_id,
-                        job_id,
-                        buffer.clone(),
-                    ) {
+                    if let Err(e) = log_client.send_job_logs(log_ctx.clone(), buffer.clone()) {
                         tracing::error!("sending job logs failed: {e:?}");
                     }
                 }
@@ -83,14 +70,7 @@ impl StepsRunner {
                     return;
                 }
 
-                if let Err(e) = log_client.send_job_logs(
-                    log_ctx,
-                    project_id,
-                    workflow_id,
-                    revision_id,
-                    job_id,
-                    buffer.clone(),
-                ) {
+                if let Err(e) = log_client.send_job_logs(log_ctx, buffer.clone()) {
                     tracing::error!("error sending job log: {e:?}");
                 }
             });
@@ -564,14 +544,7 @@ where
         };
 
         tracing::info!("Uploading job result");
-        match self.client.upload_job_artifact(
-            ctx.clone(),
-            execution_ctx.project_id(),
-            execution_ctx.workflow_id(),
-            execution_ctx.revision_id(),
-            execution_ctx.job_id(),
-            file,
-        ) {
+        match self.client.upload_job_artifact(ctx.clone(), file) {
             Ok(_) => {
                 tracing::info!("Uploaded job result");
                 log_tx
@@ -816,7 +789,7 @@ mod tests {
                 let mut stream = MockJobClient::new();
                 stream
                     .expect_send_job_logs()
-                    .returning(|_, _, _, _, _, _| Ok(()))
+                    .returning(|_, _| Ok(()))
                     .times(1..);
                 stream
             })
