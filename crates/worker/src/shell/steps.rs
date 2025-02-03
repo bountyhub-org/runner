@@ -197,7 +197,7 @@ impl StepsRunner {
                         dst: LogDestination::Stdout,
                         step_index,
                         timestamp: OffsetDateTime::now_utc(),
-                        message: format!("Created workdir: '{}'", workdir),
+                        line: format!("Created workdir: '{}'", workdir),
                     })
                     .unwrap_or_else(|err| tracing::error!("Failed to send log line: {:?}", err));
                 TimelineRequestStepState::Succeeded
@@ -208,7 +208,7 @@ impl StepsRunner {
                         dst: LogDestination::Stderr,
                         step_index,
                         timestamp: OffsetDateTime::now_utc(),
-                        message: format!("Failed to create workdir '{}': {}", workdir, e),
+                        line: format!("Failed to create workdir '{}': {}", workdir, e),
                     })
                     .unwrap_or_else(|err| tracing::error!("Failed to send log line: {:?}", err));
 
@@ -235,7 +235,7 @@ impl StepsRunner {
                         dst: LogDestination::Stdout,
                         step_index,
                         timestamp: OffsetDateTime::now_utc(),
-                        message: format!("Removed workdir: {}", workdir),
+                        line: format!("Removed workdir: {}", workdir),
                     })
                     .unwrap_or_else(|err| tracing::error!("Failed to send log line: {:?}", err));
                 TimelineRequestStepState::Succeeded
@@ -246,7 +246,7 @@ impl StepsRunner {
                         dst: LogDestination::Stderr,
                         step_index: 0,
                         timestamp: OffsetDateTime::now_utc(),
-                        message: format!("Failed to remove workdir '{}': {}", workdir, e),
+                        line: format!("Failed to remove workdir '{}': {}", workdir, e),
                     })
                     .unwrap_or_else(|err| tracing::error!("Failed to send log line: {:?}", err));
                 TimelineRequestStepState::Failed {
@@ -280,7 +280,7 @@ impl CommandStep<'_> {
                         dst: LogDestination::Stderr,
                         step_index: 0,
                         timestamp: OffsetDateTime::now_utc(),
-                        message: format!("Spliting shell '{}' using shlex failed", self.shell),
+                        line: format!("Spliting shell '{}' using shlex failed", self.shell),
                     })
                     .unwrap_or_else(|err| tracing::error!("Failed to send log line: {:?}", err));
 
@@ -296,7 +296,7 @@ impl CommandStep<'_> {
                         dst: LogDestination::Stderr,
                         step_index: 0,
                         timestamp: OffsetDateTime::now_utc(),
-                        message: format!("Failed to write script: {}", err),
+                        line: format!("Failed to write script: {}", err),
                     })
                     .unwrap_or_else(|err| tracing::error!("Failed to send log line: {:?}", err));
 
@@ -342,7 +342,7 @@ impl CommandStep<'_> {
                         dst: LogDestination::Stdout,
                         step_index: 0,
                         timestamp: OffsetDateTime::now_utc(),
-                        message: line,
+                        line: line,
                     })
                     .unwrap_or_else(|err| tracing::error!("Failed to send log line: {:?}", err));
             }
@@ -358,7 +358,7 @@ impl CommandStep<'_> {
                         dst: LogDestination::Stderr,
                         step_index: 0,
                         timestamp: OffsetDateTime::now_utc(),
-                        message: line,
+                        line: line,
                     })
                     .unwrap_or_else(|err| tracing::error!("Failed to send log line: {:?}", err));
             }
@@ -378,8 +378,7 @@ impl CommandStep<'_> {
                             dst: LogDestination::Stderr,
                             step_index: 0,
                             timestamp: OffsetDateTime::now_utc(),
-                            message: "Received cancellation signal. Killing child process"
-                                .to_string(),
+                            line: "Received cancellation signal. Killing child process".to_string(),
                         })
                         .unwrap_or_else(|err| {
                             tracing::error!("Failed to send log line: {:?}", err)
@@ -401,7 +400,7 @@ impl CommandStep<'_> {
                             dst: LogDestination::Stderr,
                             step_index: 0,
                             timestamp: OffsetDateTime::now_utc(),
-                            message: format!("Failed to wait for child process: {}", err),
+                            line: format!("Failed to wait for child process: {}", err),
                         })
                         .unwrap_or_else(|err| {
                             tracing::error!("Failed to send log line: {:?}", err)
@@ -552,7 +551,7 @@ where
                         dst: LogDestination::Stdout,
                         step_index,
                         timestamp: OffsetDateTime::now_utc(),
-                        message: "Uploaded job result".to_string(),
+                        line: "Uploaded job result".to_string(),
                     })
                     .unwrap_or_else(|err| tracing::error!("Failed to send log line: {:?}", err));
                 TimelineRequestStepState::Succeeded
@@ -564,7 +563,7 @@ where
                         dst: LogDestination::Stderr,
                         step_index,
                         timestamp: OffsetDateTime::now_utc(),
-                        message: format!("Failed to upload job result: {}", err),
+                        line: format!("Failed to upload job result: {}", err),
                     })
                     .unwrap_or_else(|err| tracing::error!("Failed to send log line: {:?}", err));
                 TimelineRequestStepState::Failed {
@@ -856,7 +855,7 @@ mod tests {
 
         let log_line = rx.try_recv().expect("Failed to receive log line");
         assert!(matches!(log_line.dst, LogDestination::Stdout));
-        assert_eq!(log_line.message, "Hello, World!");
+        assert_eq!(log_line.line, "Hello, World!");
     }
 
     #[test]
@@ -886,7 +885,7 @@ mod tests {
 
         let log_line = rx.try_recv().expect("Failed to receive log line");
         assert!(matches!(log_line.dst, LogDestination::Stdout));
-        assert_eq!(log_line.message, "Hello, World!");
+        assert_eq!(log_line.line, "Hello, World!");
     }
 
     #[test]
@@ -917,11 +916,11 @@ mod tests {
             let log_line = rx.recv().expect("Failed to receive log line");
             match log_line.dst {
                 LogDestination::Stdout => {
-                    assert_eq!(log_line.message, "Hello, World!");
+                    assert_eq!(log_line.line, "Hello, World!");
                     stdout_count += 1;
                 }
                 LogDestination::Stderr => {
-                    assert!(log_line.message.contains("echo 'Hello, World!'"));
+                    assert!(log_line.line.contains("echo 'Hello, World!'"));
                     stderr_count += 1;
                 }
             }
@@ -992,6 +991,6 @@ mod tests {
 
         let log_line = rx.try_recv().expect("Failed to receive log line");
         assert!(matches!(log_line.dst, LogDestination::Stderr));
-        assert!(!log_line.message.is_empty());
+        assert!(!log_line.line.is_empty());
     }
 }

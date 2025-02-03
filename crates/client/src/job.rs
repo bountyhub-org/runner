@@ -154,12 +154,13 @@ pub enum LogDestination {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LogLine {
     pub dst: LogDestination,
     pub step_index: u32,
     #[serde(with = "time::serde::rfc3339")]
     pub timestamp: OffsetDateTime,
-    pub message: String,
+    pub line: String,
 }
 
 pub trait JobClient: Send + Sync + Clone + 'static {
