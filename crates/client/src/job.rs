@@ -346,15 +346,41 @@ impl JobClient for HttpJobClient {
         };
 
         let client = self.pool.stream_client();
-        client
-            .patch(&endpoint)
-            .set("Authorization", &self.token)
-            .set("Content-Type", "application/json")
-            .send_json(logs)
-            .change_context(ClientError)
-            .attach_printable("failed to stream logs")?;
 
-        Ok(())
+        let retry = || ctx.is_done();
+        let mut recoil = self.recoil.clone();
+
+        let res = recoil.run(|| {
+            if ctx.is_done() {
+                return State::Fail(Report::new(ClientError).attach_printable("cancelled"));
+            }
+
+            match client
+                .patch(&endpoint)
+                .set("Authorization", &self.token)
+                .set("Content-Type", "application/json")
+                .send_json(&logs)
+            {
+                Ok(_) => State::Done(()),
+                Err(UreqError::Transport(err))
+                    if err.kind() == ureq::ErrorKind::ConnectionFailed =>
+                {
+                    State::Retry(retry)
+                }
+                Err(err) => State::Fail(
+                    Report::new(ClientError)
+                        .attach_printable(format!("Failed to post step timeline: {:?}", err)),
+                ),
+            }
+        });
+
+        match res {
+            Ok(_) => Ok(()),
+            Err(recoil::recoil::Error::MaxRetriesReached) => Err(Report::new(RetryableError)
+                .attach_printable("Max retries reached")
+                .change_context(ClientError)),
+            Err(recoil::recoil::Error::Custom(e)) => Err(e),
+        }
     }
 
     #[tracing::instrument(skip(self, ctx))]
