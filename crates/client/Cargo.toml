@@ -14,11 +14,11 @@ error-stack = "^0.5"
 serde = { version = "^1", features = ["derive"] }
 tracing = "^0.1"
 ureq = { version = "^2", features = ["json", "native-certs"] }
+time = { version = "^0.3", features = ["serde"] }
 mockall = { version = "0.13.0", optional = true }
 serde_repr = "^0.1"
 serde_json = "^1"
 uuid = { version = "^1", features = ["serde"] }
-pipe = "0.4.0"
 cellang = { version = "^0.4" }
 jobengine = { path = "../jobengine" }
 ctx = { path = "../ctx" }
