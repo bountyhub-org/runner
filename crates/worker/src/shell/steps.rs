@@ -139,7 +139,7 @@ impl StepsRunner {
                             allow_failed: *allow_failed,
                         };
 
-                        cmd.run(ctx.clone(), &mut self.execution_ctx, tx)
+                        cmd.run(ctx.clone(), &mut self.execution_ctx, index, tx)
                     }
                 };
 
@@ -244,7 +244,7 @@ impl StepsRunner {
                 log_tx
                     .send(LogLine {
                         dst: LogDestination::Stderr,
-                        step_index: 0,
+                        step_index,
                         timestamp: OffsetDateTime::now_utc(),
                         line: format!("Failed to remove workdir '{}': {}", workdir, e),
                     })
@@ -270,6 +270,7 @@ impl CommandStep<'_> {
         &self,
         ctx: Ctx<Background>,
         execution_ctx: &mut ExecutionContext,
+        step_index: u32,
         log_tx: mpsc::Sender<LogLine>,
     ) -> TimelineRequestStepState {
         let mut shell_split = match shlex::split(self.shell) {
@@ -278,7 +279,7 @@ impl CommandStep<'_> {
                 log_tx
                     .send(LogLine {
                         dst: LogDestination::Stderr,
-                        step_index: 0,
+                        step_index,
                         timestamp: OffsetDateTime::now_utc(),
                         line: format!("Spliting shell '{}' using shlex failed", self.shell),
                     })
@@ -294,7 +295,7 @@ impl CommandStep<'_> {
                 log_tx
                     .send(LogLine {
                         dst: LogDestination::Stderr,
-                        step_index: 0,
+                        step_index,
                         timestamp: OffsetDateTime::now_utc(),
                         line: format!("Failed to write script: {}", err),
                     })
@@ -340,9 +341,9 @@ impl CommandStep<'_> {
                 stdout_tx
                     .send(LogLine {
                         dst: LogDestination::Stdout,
-                        step_index: 0,
+                        step_index,
                         timestamp: OffsetDateTime::now_utc(),
-                        line: line,
+                        line,
                     })
                     .unwrap_or_else(|err| tracing::error!("Failed to send log line: {:?}", err));
             }
@@ -356,9 +357,9 @@ impl CommandStep<'_> {
                 stderr_tx
                     .send(LogLine {
                         dst: LogDestination::Stderr,
-                        step_index: 0,
+                        step_index,
                         timestamp: OffsetDateTime::now_utc(),
-                        line: line,
+                        line,
                     })
                     .unwrap_or_else(|err| tracing::error!("Failed to send log line: {:?}", err));
             }
@@ -376,7 +377,7 @@ impl CommandStep<'_> {
                     log_tx
                         .send(LogLine {
                             dst: LogDestination::Stderr,
-                            step_index: 0,
+                            step_index,
                             timestamp: OffsetDateTime::now_utc(),
                             line: "Received cancellation signal. Killing child process".to_string(),
                         })
@@ -398,7 +399,7 @@ impl CommandStep<'_> {
                     log_tx
                         .send(LogLine {
                             dst: LogDestination::Stderr,
-                            step_index: 0,
+                            step_index,
                             timestamp: OffsetDateTime::now_utc(),
                             line: format!("Failed to wait for child process: {}", err),
                         })
@@ -602,7 +603,6 @@ mod tests {
     use client::job::{MockJobClient, TimelineRequestStepState};
     use jobengine::{ProjectMeta, WorkflowMeta, WorkflowRevisionMeta};
     use std::fs;
-    use std::io::Read;
     use std::sync::Arc;
     use std::{collections::BTreeMap, env};
     use uuid::Uuid;
@@ -846,7 +846,7 @@ mod tests {
         let mut execution_ctx = ExecutionContext::new(workdir, Arc::new(vec![]), job_execution_ctx);
 
         let (tx, rx) = mpsc::channel();
-        let result = step.run(ctx::background(), &mut execution_ctx, tx);
+        let result = step.run(ctx::background(), &mut execution_ctx, 1, tx);
         assert!(
             matches!(result, TimelineRequestStepState::Succeeded),
             "{:?}",
@@ -856,6 +856,7 @@ mod tests {
         let log_line = rx.try_recv().expect("Failed to receive log line");
         assert!(matches!(log_line.dst, LogDestination::Stdout));
         assert_eq!(log_line.line, "Hello, World!");
+        assert_eq!(log_line.step_index, 1);
     }
 
     #[test]
@@ -876,7 +877,7 @@ mod tests {
         );
 
         let (tx, rx) = mpsc::channel();
-        let result = step.run(ctx::background(), &mut execution_ctx, tx);
+        let result = step.run(ctx::background(), &mut execution_ctx, 1, tx);
         assert!(
             matches!(result, TimelineRequestStepState::Succeeded),
             "{:?}",
@@ -886,6 +887,7 @@ mod tests {
         let log_line = rx.try_recv().expect("Failed to receive log line");
         assert!(matches!(log_line.dst, LogDestination::Stdout));
         assert_eq!(log_line.line, "Hello, World!");
+        assert_eq!(log_line.step_index, 1);
     }
 
     #[test]
@@ -902,7 +904,7 @@ mod tests {
         let mut execution_ctx = ExecutionContext::new(workdir, Arc::new(vec![]), job_execution_ctx);
 
         let (tx, rx) = mpsc::channel();
-        let result = step.run(ctx::background(), &mut execution_ctx, tx);
+        let result = step.run(ctx::background(), &mut execution_ctx, 1, tx);
         assert!(
             matches!(result, TimelineRequestStepState::Succeeded),
             "{:?}",
@@ -917,10 +919,12 @@ mod tests {
             match log_line.dst {
                 LogDestination::Stdout => {
                     assert_eq!(log_line.line, "Hello, World!");
+                    assert_eq!(log_line.step_index, 1);
                     stdout_count += 1;
                 }
                 LogDestination::Stderr => {
                     assert!(log_line.line.contains("echo 'Hello, World!'"));
+                    assert_eq!(log_line.step_index, 1);
                     stderr_count += 1;
                 }
             }
@@ -947,7 +951,7 @@ mod tests {
         );
 
         let (tx, _rx) = mpsc::channel();
-        let result = step.run(ctx::background(), &mut execution_ctx, tx);
+        let result = step.run(ctx::background(), &mut execution_ctx, 0, tx);
         assert!(
             matches!(
                 result,
@@ -978,7 +982,7 @@ mod tests {
 
         let step_ctx = ctx.to_background();
         let (tx, rx) = mpsc::channel();
-        let handle = thread::spawn(move || step.run(step_ctx, &mut execution_ctx, tx));
+        let handle = thread::spawn(move || step.run(step_ctx, &mut execution_ctx, 1, tx));
 
         thread::sleep(Duration::from_millis(500));
         ctx.cancel();
