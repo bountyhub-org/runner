@@ -14,6 +14,8 @@ pub struct Config {
     pub name: String,
     /// Variables associated with the workflow
     pub vars: BTreeMap<String, String>,
+    /// Custom inputs
+    pub inputs: Option<BTreeMap<String, String>>,
     /// Scans associated with the workflow
     pub scans: BTreeMap<String, Vec<JobMeta>>,
     /// Project metadata
@@ -58,6 +60,18 @@ impl JobEngine {
                 .collect::<Map>(),
         )
         .expect("failed to add vars");
+        ctx.set_variable(
+            "inputs",
+            match &config.inputs {
+                Some(inputs) => inputs
+                    .clone()
+                    .into_iter()
+                    .map(|(k, v)| (k.into(), v.into()))
+                    .collect::<Map>(),
+                None => Map::new(),
+            },
+        )
+        .expect("failed to add inputs");
         ctx.set_variable("ok", true)
             .expect("failed to add succeeded");
         ctx.set_variable("always", true)
@@ -260,6 +274,17 @@ fn has_diff(env: &Environment, tokens: &[TokenTree]) -> std::result::Result<Valu
     Ok(Value::Bool(previous.nonce != latest.nonce))
 }
 
+#[derive(Debug)]
+pub struct EvaluationError;
+
+impl fmt::Display for EvaluationError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "evaluation error")
+    }
+}
+
+impl ErrorContext for EvaluationError {}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -270,6 +295,7 @@ mod tests {
             id,
             name: name.to_string(),
             vars: BTreeMap::new(),
+            inputs: None,
             scans,
             project: ProjectMeta { id: Uuid::now_v7() },
             workflow: WorkflowMeta { id: Uuid::now_v7() },
@@ -590,15 +616,51 @@ mod tests {
         let result = engine.eval("always").unwrap();
         assert_eq!(result, Value::Bool(true));
     }
-}
 
-#[derive(Debug)]
-pub struct EvaluationError;
+    #[test]
+    fn test_eval_empty_inputs() {
+        let mut scan_jobs = BTreeMap::new();
+        scan_jobs.insert("scan1".to_string(), vec![]);
+        let cfg = test_config(Uuid::now_v7(), "scan1", scan_jobs);
+        let engine = JobEngine::new(&cfg);
+        let result = engine
+            .eval("has(inputs.test)")
+            .expect("has should not fail");
+        assert_eq!(
+            result,
+            Value::Bool(false),
+            "expected has(inputs.test) to be false"
+        );
 
-impl fmt::Display for EvaluationError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "evaluation error")
+        let result = engine.eval("inputs.test");
+        assert!(result.is_err(), "expected error, got {result:?}");
+    }
+
+    #[test]
+    fn test_eval_set_inputs() {
+        let mut scan_jobs = BTreeMap::new();
+        scan_jobs.insert("scan1".to_string(), vec![]);
+        let mut cfg = test_config(Uuid::now_v7(), "scan1", scan_jobs);
+        cfg.inputs = Some({
+            let mut m = BTreeMap::new();
+            m.insert("test_key".to_string(), "test_value".to_string());
+            m
+        });
+        let engine = JobEngine::new(&cfg);
+
+        let result = engine
+            .eval("has(inputs.test_key)")
+            .expect("has should not fail");
+
+        assert_eq!(
+            result,
+            Value::Bool(true),
+            "expected has(inputs.test) to be false"
+        );
+
+        let result = engine
+            .eval("inputs.test_key")
+            .expect("expected inputs.test_key to exist");
+        assert_eq!(result, Value::String("test_value".to_string()));
     }
 }
-
-impl ErrorContext for EvaluationError {}

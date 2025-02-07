@@ -102,6 +102,7 @@ mod tests {
                 id: Uuid::now_v7(),
                 name: "example".to_string(),
                 scans: BTreeMap::new(),
+                inputs: None,
                 project: ProjectMeta { id: Uuid::now_v7() },
                 workflow: WorkflowMeta { id: Uuid::now_v7() },
                 revision: WorkflowRevisionMeta { id: Uuid::now_v7() },
@@ -157,6 +158,7 @@ mod tests {
                 );
                 m
             },
+            inputs: None,
             project: ProjectMeta { id: Uuid::now_v7() },
             workflow: WorkflowMeta { id: Uuid::now_v7() },
             revision: WorkflowRevisionMeta { id: Uuid::now_v7() },
