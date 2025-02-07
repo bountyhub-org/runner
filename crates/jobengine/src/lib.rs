@@ -7,6 +7,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct Config {
     /// id of the job from which the evaluation is done
     pub id: Uuid,
@@ -15,7 +16,7 @@ pub struct Config {
     /// Variables associated with the workflow
     pub vars: BTreeMap<String, String>,
     /// Custom inputs
-    pub inputs: Option<BTreeMap<String, String>>,
+    pub inputs: Option<BTreeMap<String, InputValue>>,
     /// Scans associated with the workflow
     pub scans: BTreeMap<String, Vec<JobMeta>>,
     /// Project metadata
@@ -24,6 +25,14 @@ pub struct Config {
     pub workflow: WorkflowMeta,
     /// Workflow revision metadata
     pub revision: WorkflowRevisionMeta,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+#[serde(tag = "type", content = "value")]
+pub enum InputValue {
+    String(String),
+    Bool(bool),
 }
 
 /// JobEngine is a wrapper around the CEL interpreter that provides a context
@@ -66,7 +75,15 @@ impl JobEngine {
                 Some(inputs) => inputs
                     .clone()
                     .into_iter()
-                    .map(|(k, v)| (k.into(), v.into()))
+                    .map(|(k, v)| {
+                        (
+                            k.into(),
+                            match v {
+                                InputValue::String(s) => s.into(),
+                                InputValue::Bool(b) => b.into(),
+                            },
+                        )
+                    })
                     .collect::<Map>(),
                 None => Map::new(),
             },
@@ -643,24 +660,41 @@ mod tests {
         let mut cfg = test_config(Uuid::now_v7(), "scan1", scan_jobs);
         cfg.inputs = Some({
             let mut m = BTreeMap::new();
-            m.insert("test_key".to_string(), "test_value".to_string());
+            m.insert(
+                "key_str".to_string(),
+                InputValue::String("example".to_string()),
+            );
+            m.insert("key_bool".to_string(), InputValue::Bool(true));
             m
         });
         let engine = JobEngine::new(&cfg);
 
         let result = engine
-            .eval("has(inputs.test_key)")
+            .eval("has(inputs.key_str)")
             .expect("has should not fail");
-
         assert_eq!(
             result,
             Value::Bool(true),
-            "expected has(inputs.test) to be false"
+            "expected inputs to contain key_str"
         );
 
         let result = engine
-            .eval("inputs.test_key")
-            .expect("expected inputs.test_key to exist");
-        assert_eq!(result, Value::String("test_value".to_string()));
+            .eval("inputs.key_str")
+            .expect("expected inputs.key_str to exist");
+        assert_eq!(result, Value::String("example".to_string()));
+
+        let result = engine
+            .eval("has(inputs.key_bool)")
+            .expect("has should not fail");
+        assert_eq!(
+            result,
+            Value::Bool(true),
+            "expected inputs to contain key_bool"
+        );
+
+        let result = engine
+            .eval("inputs.key_bool")
+            .expect("expected inputs.key_bool to exist");
+        assert_eq!(result, Value::Bool(true));
     }
 }
