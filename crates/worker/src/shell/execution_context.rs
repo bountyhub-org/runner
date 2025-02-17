@@ -31,7 +31,7 @@ impl ExecutionContext {
             cfg.revision.id.to_string(),
         ));
         envs.push(("BOUNTYHUB_JOB_ID".to_string(), cfg.id.to_string()));
-        envs.push(("BOUNTYHUB_JOB_NAME".to_string(), cfg.name.clone()));
+        envs.push(("BOUNTYHUB_SCAN_NAME".to_string(), cfg.name.clone()));
 
         Self {
             workdir,
@@ -249,7 +249,7 @@ mod tests {
             job_id.to_string()
         );
         assert_eq!(
-            got.get("BOUNTYHUB_JOB_NAME")
+            got.get("BOUNTYHUB_SCAN_NAME")
                 .expect("BOUNTYHUB_JOB_NAME")
                 .clone(),
             "example".to_string(),
