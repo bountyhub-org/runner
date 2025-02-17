@@ -17,9 +17,25 @@ impl ExecutionContext {
     pub fn new(workdir: String, envs: Arc<Vec<(String, String)>>, cfg: jobengine::Config) -> Self {
         let engine = JobEngine::new(&cfg);
 
+        let mut envs = envs.iter().cloned().collect::<Vec<(String, String)>>();
+        envs.push((
+            "BOUNTYHUB_PROJECT_ID".to_string(),
+            cfg.project.id.to_string(),
+        ));
+        envs.push((
+            "BOUNTYHUB_WORKFLOW_ID".to_string(),
+            cfg.workflow.id.to_string(),
+        ));
+        envs.push((
+            "BOUNTYHUB_REVISION_ID".to_string(),
+            cfg.revision.id.to_string(),
+        ));
+        envs.push(("BOUNTYHUB_JOB_ID".to_string(), cfg.id.to_string()));
+        envs.push(("BOUNTYHUB_SCAN_NAME".to_string(), cfg.name.clone()));
+
         Self {
             workdir,
-            envs,
+            envs: Arc::new(envs),
             engine,
             cfg,
             ok: true,
@@ -90,7 +106,7 @@ mod tests {
     use super::*;
     use client::job::TimelineRequestStepState;
     use jobengine::{JobMeta, ProjectMeta, WorkflowMeta, WorkflowRevisionMeta};
-    use std::{collections::BTreeMap, sync::Arc};
+    use std::{collections::BTreeMap, env, sync::Arc};
     use uuid::Uuid;
 
     #[test]
@@ -199,6 +215,62 @@ mod tests {
         assert_eq!(
             ctx.eval("id").unwrap(),
             CelValue::String(job_config.id.to_string())
+        );
+    }
+
+    #[test]
+    fn test_environment_is_set() {
+        let project_id = Uuid::now_v7();
+        let workflow_id = Uuid::now_v7();
+        let revision_id = Uuid::now_v7();
+        let job_id = Uuid::now_v7();
+
+        let ctx = super::ExecutionContext::new(
+            "workdir".to_string(),
+            Arc::new(vec![("key".to_string(), "value".to_string())]),
+            jobengine::Config {
+                id: job_id,
+                name: "example".to_string(),
+                scans: BTreeMap::new(),
+                inputs: None,
+                project: ProjectMeta { id: project_id },
+                workflow: WorkflowMeta { id: workflow_id },
+                revision: WorkflowRevisionMeta { id: revision_id },
+                vars: BTreeMap::new(),
+            },
+        );
+
+        let envs = ctx.envs();
+        let got = envs.iter().cloned().collect::<BTreeMap<String, String>>();
+        assert_eq!(
+            got.get("BOUNTYHUB_JOB_ID")
+                .expect("BOUNTYHUB_JOB_ID")
+                .clone(),
+            job_id.to_string()
+        );
+        assert_eq!(
+            got.get("BOUNTYHUB_SCAN_NAME")
+                .expect("BOUNTYHUB_JOB_NAME")
+                .clone(),
+            "example".to_string(),
+        );
+        assert_eq!(
+            got.get("BOUNTYHUB_PROJECT_ID")
+                .expect("BOUNTYHUB_PROJECT_ID")
+                .clone(),
+            project_id.to_string(),
+        );
+        assert_eq!(
+            got.get("BOUNTYHUB_WORKFLOW_ID")
+                .expect("BOUNTYHUB_WORKFLOW_ID")
+                .clone(),
+            workflow_id.to_string(),
+        );
+        assert_eq!(
+            got.get("BOUNTYHUB_REVISION_ID")
+                .expect("BOUNTYHUB_REVISION_ID")
+                .clone(),
+            revision_id.to_string(),
         );
     }
 }
