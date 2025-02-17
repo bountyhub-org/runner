@@ -516,9 +516,24 @@ where
         step_index: u32,
         log_tx: mpsc::Sender<LogLine>,
     ) -> TimelineRequestStepState {
-        let artifact_builder = ArtifactBuilder {
-            uploads: self.uploads.clone(),
-            root_dir: PathBuf::from(&execution_ctx.workdir()),
+        let artifact_builder = match ArtifactBuilder::new(
+            &PathBuf::from(&execution_ctx.workdir()),
+            self.uploads.clone(),
+        ) {
+            Ok(ab) => ab,
+            Err(e) => {
+                log_tx
+                    .send(LogLine {
+                        dst: LogDestination::Stderr,
+                        step_index,
+                        timestamp: OffsetDateTime::now_utc(),
+                        line: format!("Failed to upload job result: {e:?}"),
+                    })
+                    .unwrap_or_else(|err| tracing::error!("Failed to send log line: {:?}", err));
+                return TimelineRequestStepState::Failed {
+                    outcome: TimelineRequestStepOutcome::Failed,
+                };
+            }
         };
 
         tracing::info!("Building an artifact");
