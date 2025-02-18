@@ -57,10 +57,7 @@ fn normalize_to_relative_path(root: &PathBuf, s: &str) -> Result<PathBuf, Artifa
         )))
     }
 
-    Ok(canonized
-        .strip_prefix(root)
-        .change_context(ArtifactError("failed to strip pwd prefix".to_string()))?
-        .to_path_buf())
+    Ok(canonized)
 }
 
 impl ArtifactBuilder {
@@ -156,8 +153,14 @@ impl ArtifactBuilder {
                     )?;
                 } else {
                     tracing::info!("Path is file, copying file");
-                    w.start_file_from_path(&path, options)
-                        .map_err(|e| ArtifactError(e.to_string()))?;
+                    w.start_file_from_path(
+                        path.strip_prefix(&self.root_dir)
+                            .change_context(ArtifactError(format!(
+                                "failed to strip prefix for path {path:?}"
+                            )))?,
+                        options,
+                    )
+                    .map_err(|e| ArtifactError(e.to_string()))?;
 
                     tracing::info!("Opening file: {path:?}");
                     let mut f = File::open(self.root_dir.join(&path)).map_err(|e| {
@@ -170,8 +173,14 @@ impl ArtifactBuilder {
             }
         } else {
             tracing::info!("Path is file, copying file");
-            w.start_file_from_path(path, options)
-                .map_err(|e| ArtifactError(e.to_string()))?;
+            w.start_file_from_path(
+                path.strip_prefix(&self.root_dir)
+                    .change_context(ArtifactError(format!(
+                        "failed to strip prefix for path {path:?}"
+                    )))?,
+                options,
+            )
+            .map_err(|e| ArtifactError(e.to_string()))?;
 
             tracing::info!("Opening file: {path:?}");
             let mut f = File::open(self.root_dir.join(path)).map_err(|e| {
