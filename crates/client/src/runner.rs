@@ -118,7 +118,7 @@ impl RunnerClient for HttpRunnerClient {
                 .call()
             {
                 Ok(res) => State::Done(res),
-                Err(UreqError::Status(403, ..)) => State::Fail(
+                Err(UreqError::Status(401, ..)) => State::Fail(
                     Report::new(FatalError)
                         .attach_printable("Unauthorized")
                         .change_context(ClientError),
@@ -172,7 +172,7 @@ impl RunnerClient for HttpRunnerClient {
                 .call()
             {
                 Ok(res) => State::Done(res),
-                Err(UreqError::Status(403, ..)) => State::Fail(
+                Err(UreqError::Status(401, ..)) => State::Fail(
                     Report::new(FatalError)
                         .attach_printable("Unauthorized")
                         .change_context(ClientError),
@@ -231,7 +231,7 @@ impl RunnerClient for HttpRunnerClient {
                 .send_json(ureq::json!(PollRequest { capacity }))
             {
                 Ok(res) => State::Done(res),
-                Err(UreqError::Status(403, ..)) => State::Fail(
+                Err(UreqError::Status(401, ..)) => State::Fail(
                     Report::new(FatalError)
                         .attach_printable("Unauthorized")
                         .change_context(ClientError),
@@ -291,7 +291,7 @@ impl RunnerClient for HttpRunnerClient {
                 .send_json(ureq::json!(CompleteRequest { job_id }))
             {
                 Ok(res) => State::Done(res),
-                Err(UreqError::Status(403, ..)) => State::Fail(
+                Err(UreqError::Status(401, ..)) => State::Fail(
                     Report::new(FatalError)
                         .attach_printable("Unauthorized")
                         .change_context(ClientError),
