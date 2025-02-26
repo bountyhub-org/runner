@@ -266,7 +266,7 @@ impl JobClient for HttpJobClient {
                 .call()
             {
                 Ok(res) => State::Done(res),
-                Err(UreqError::Status(401, ..)) => State::Fail(
+                Err(UreqError::Status(401 | 403, ..)) => State::Fail(
                     Report::new(FatalError)
                         .attach_printable("Unauthorized")
                         .change_context(ClientError),
