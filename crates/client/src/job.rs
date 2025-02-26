@@ -1,5 +1,8 @@
 use super::error::ClientError;
-use crate::{error::RetryableError, pool::ClientPool};
+use crate::{
+    error::{FatalError, RetryableError},
+    pool::ClientPool,
+};
 use config::Config;
 use ctx::{Background, Ctx};
 use error_stack::{Report, Result, ResultExt};
@@ -263,6 +266,11 @@ impl JobClient for HttpJobClient {
                 .call()
             {
                 Ok(res) => State::Done(res),
+                Err(UreqError::Status(401 | 403, ..)) => State::Fail(
+                    Report::new(FatalError)
+                        .attach_printable("Unauthorized")
+                        .change_context(ClientError),
+                ),
                 Err(UreqError::Transport(err))
                     if err.kind() == ureq::ErrorKind::ConnectionFailed =>
                 {

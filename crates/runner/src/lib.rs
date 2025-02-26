@@ -96,16 +96,19 @@ where
 
         tracing::info!("Listening for jobs");
 
+        let root_ctx = ctx.with_cancel();
+        let wait_ctx = root_ctx.to_background();
+        let poll_ctx = root_ctx.to_background();
+        let result_ctx = root_ctx.to_background();
+
         let channel_cap = self.config.read().unwrap().capacity as usize;
         let (worker_started_tx, worker_started_rx) =
             mpsc::sync_channel::<Vec<(Uuid, JoinHandle<()>)>>(channel_cap);
         let (worker_finished_tx, worker_finished_rx) = mpsc::sync_channel::<Uuid>(channel_cap);
 
-        let wait_ctx = ctx.with_cancel();
-        let wait_ctx_background = wait_ctx.to_background();
         let wait_handle = thread::spawn(move || {
             let mut handles = BTreeMap::new();
-            let ctx = wait_ctx_background;
+            let ctx = wait_ctx;
             loop {
                 if ctx.is_done() && handles.is_empty() {
                     break;
@@ -151,20 +154,14 @@ where
         let (poll_tx, poll_rx) =
             mpsc::sync_channel::<Result<Vec<JobAcquiredResponse>, ClientError>>(1);
         let poll_client = client.clone();
-        let poll_ctx = ctx.to_background();
         let capacity = self.config.read().unwrap().capacity;
         let _poll_handle = thread::spawn(move || {
-            poll_loop(
-                poll_ctx.clone(),
-                poll_client,
-                capacity,
-                poll_tx,
-                worker_finished_rx,
-            )
+            poll_loop(poll_ctx, poll_client, capacity, poll_tx, worker_finished_rx);
+            root_ctx.cancel();
         });
 
         let result = loop {
-            if ctx.is_done() {
+            if result_ctx.is_done() {
                 tracing::info!("Runner context is cancelled");
                 break Ok(());
             }
@@ -289,3 +286,36 @@ impl fmt::Display for RunnerError {
 }
 
 impl Context for RunnerError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use client::error::{ClientError, FatalError};
+    use client::runner::MockRunnerClient;
+    use error_stack::Report;
+
+    #[test]
+    fn test_poll_loop() {
+        let mut client = MockRunnerClient::new();
+        client
+            .expect_request()
+            .times(1)
+            .returning(|_, _| Err(Report::new(FatalError).change_context(ClientError)));
+
+        let (poll_tx, _poll_rx) =
+            mpsc::sync_channel::<Result<Vec<JobAcquiredResponse>, ClientError>>(1);
+
+        let (_worker_finished_tx, worker_finished_rx) = mpsc::sync_channel::<Uuid>(1);
+
+        let handle = thread::spawn(move || {
+            poll_loop(ctx::background(), client, 1, poll_tx, worker_finished_rx);
+        });
+
+        thread::sleep(Duration::from_secs(1));
+        assert!(
+            handle.is_finished(),
+            "expected poll to exit after fatal error"
+        );
+        handle.join().expect("handle should be joined properly");
+    }
+}

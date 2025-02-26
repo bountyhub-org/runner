@@ -106,7 +106,7 @@ mod tests {
     use super::*;
     use client::job::TimelineRequestStepState;
     use jobengine::{JobMeta, ProjectMeta, WorkflowMeta, WorkflowRevisionMeta};
-    use std::{collections::BTreeMap, env, sync::Arc};
+    use std::{collections::BTreeMap, sync::Arc};
     use uuid::Uuid;
 
     #[test]
