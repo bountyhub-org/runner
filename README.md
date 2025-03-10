@@ -90,3 +90,34 @@ Once the configuration is done, you can see the `.runner` file present in the di
 ```bash
 docker run -v $(pwd):/home/runner bh-runner runner run
 ```
+
+# Shell completions
+
+
+To enable auto-completion, you can run the following command:
+
+If you are not sure which shell you are using, you can run the following command:
+
+```bash
+echo $SHELL
+```
+
+You can run the following command to see what shells are available:
+
+```bash
+./runner completion --help
+```
+
+### Examples:
+
+#### Bash
+
+```bash
+source <(./runner completion bash)
+```
+
+#### Zsh
+```bash
+source <(./runner completion zsh)
+```
+
