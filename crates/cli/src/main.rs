@@ -4,18 +4,7 @@ use std::process::exit;
 use tracing::Level;
 use tracing_subscriber::FmtSubscriber;
 
-const BANNER: &str = r#"
- ____
-|  _ \ _   _ _ __  _ __   ___ _ __
-| |_) | | | | '_ \| '_ \ / _ \ '__|
-|  _ <| |_| | | | | | | |  __/ |
-|_| \_\\__,_|_| |_|_| |_|\___|_|
-
-"#;
-
 fn main() {
-    println!("{}", BANNER);
-
     let log_level = match std::env::var("RUNNER_LOG_LEVEL")
         .unwrap_or_else(|_| "INFO".to_string())
         .to_uppercase()

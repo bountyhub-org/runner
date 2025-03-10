@@ -7,6 +7,7 @@ use client::runner::{HttpRunnerClient, JobAcquiredResponse};
 use ctx::{Background, Ctx};
 use error_stack::{Context, Report, Result, ResultExt};
 use runner::Runner;
+use std::io::Write;
 use std::sync::{Arc, RwLock};
 use std::{fmt, io};
 use sudoservice::service::Service;
@@ -311,7 +312,12 @@ impl Cli {
             Commands::Completion { shell } => {
                 let mut cmd = Self::command();
                 let name = cmd.get_name().to_string();
-                generate(shell, &mut cmd, name, &mut io::stdout());
+                let mut stdout = io::stdout().lock();
+                generate(shell, &mut cmd, name, &mut stdout);
+                stdout
+                    .flush()
+                    .change_context(ApplicationError)
+                    .attach_printable("failed to flush stdout")?;
 
                 Ok(())
             }
