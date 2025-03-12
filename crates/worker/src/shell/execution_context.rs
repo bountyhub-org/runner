@@ -32,6 +32,9 @@ impl ExecutionContext {
         ));
         envs.push(("BOUNTYHUB_JOB_ID".to_string(), cfg.id.to_string()));
         envs.push(("BOUNTYHUB_SCAN_NAME".to_string(), cfg.name.clone()));
+        cfg.envs
+            .iter()
+            .for_each(|(k, v)| envs.push((k.clone(), v.clone())));
 
         Self {
             workdir,
@@ -123,6 +126,7 @@ mod tests {
                 workflow: WorkflowMeta { id: Uuid::now_v7() },
                 revision: WorkflowRevisionMeta { id: Uuid::now_v7() },
                 vars: BTreeMap::new(),
+                envs: BTreeMap::new(),
             },
         );
         assert!(ctx.ok);
@@ -183,6 +187,7 @@ mod tests {
                 m.insert("key".to_string(), "value".to_string());
                 m
             },
+            envs: BTreeMap::new(),
         };
         let ctx = super::ExecutionContext::new(
             "workdir".to_string(),
@@ -237,6 +242,11 @@ mod tests {
                 workflow: WorkflowMeta { id: workflow_id },
                 revision: WorkflowRevisionMeta { id: revision_id },
                 vars: BTreeMap::new(),
+                envs: {
+                    let mut m = BTreeMap::new();
+                    m.insert("WORKFLOW_ENV".to_string(), "WORKFLOW_ENV".to_string());
+                    m
+                },
             },
         );
 
@@ -272,5 +282,9 @@ mod tests {
                 .clone(),
             revision_id.to_string(),
         );
+        assert_eq!(
+            got.get("WORKFLOW_ENV").expect("WORKFLOW_ENV").clone(),
+            "WORKFLOW_ENV".to_string(),
+        )
     }
 }

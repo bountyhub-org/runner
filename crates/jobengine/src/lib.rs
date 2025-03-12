@@ -15,6 +15,8 @@ pub struct Config {
     pub name: String,
     /// Variables associated with the workflow
     pub vars: BTreeMap<String, String>,
+    /// Workflow environment variables
+    pub envs: BTreeMap<String, String>,
     /// Custom inputs
     pub inputs: Option<BTreeMap<String, InputValue>>,
     /// Scans associated with the workflow
@@ -312,6 +314,7 @@ mod tests {
             id,
             name: name.to_string(),
             vars: BTreeMap::new(),
+            envs: BTreeMap::new(),
             inputs: None,
             scans,
             project: ProjectMeta { id: Uuid::now_v7() },

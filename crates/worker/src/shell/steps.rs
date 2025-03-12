@@ -631,6 +631,7 @@ mod tests {
             workflow: WorkflowMeta { id: Uuid::now_v7() },
             revision: WorkflowRevisionMeta { id: Uuid::now_v7() },
             vars: BTreeMap::new(),
+            envs: BTreeMap::new(),
             inputs: None,
         }
     }
