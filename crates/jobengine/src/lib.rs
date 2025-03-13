@@ -740,4 +740,27 @@ mod tests {
             .expect("expected inputs.key_bool to exist");
         assert_eq!(result, Value::Bool(true));
     }
+
+    #[test]
+    fn test_eval_templ() {
+        let mut scan_jobs = BTreeMap::new();
+        scan_jobs.insert("scan1".to_string(), vec![]);
+        let mut cfg = test_config(Uuid::now_v7(), "scan1", scan_jobs);
+        cfg.vars
+            .insert("EXAMPLE_KEY".to_string(), "EXAMPLE_VALUE".to_string());
+        let engine = JobEngine::new(&cfg);
+
+        let expr = "test str";
+        let got = engine
+            .eval_templ(expr)
+            .unwrap_or_else(|_| panic!("failed to evaluate template: {expr}"));
+        assert_eq!(expr, got);
+
+        let expr = "input has '${{ vars.EXAMPLE_KEY }}' value";
+        let got = engine
+            .eval_templ(expr)
+            .unwrap_or_else(|_| panic!("failed to evaluate template: {expr}"));
+        let want = "input has 'EXAMPLE_VALUE' value";
+        assert_eq!(want, got);
+    }
 }
