@@ -1,6 +1,7 @@
 use cellang::Value as CelValue;
 use client::job::{TimelineRequestStepOutcome, TimelineRequestStepState};
-use jobengine::JobEngine;
+use error_stack::Result;
+use jobengine::{EvaluationError, JobEngine};
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -14,6 +15,7 @@ pub struct ExecutionContext {
 }
 
 impl ExecutionContext {
+    #[tracing::instrument]
     pub fn new(workdir: String, envs: Arc<Vec<(String, String)>>, cfg: jobengine::Config) -> Self {
         let engine = JobEngine::new(&cfg);
 
@@ -32,9 +34,15 @@ impl ExecutionContext {
         ));
         envs.push(("BOUNTYHUB_JOB_ID".to_string(), cfg.id.to_string()));
         envs.push(("BOUNTYHUB_SCAN_NAME".to_string(), cfg.name.clone()));
-        cfg.envs
-            .iter()
-            .for_each(|(k, v)| envs.push((k.clone(), v.clone())));
+
+        for (k, v) in &cfg.envs {
+            match engine.eval_templ(v) {
+                Ok(v) => envs.push((k.clone(), v)),
+                Err(e) => {
+                    tracing::warn!("Failed to parse environment variable {k}: {e:?}. Continuing")
+                }
+            };
+        }
 
         Self {
             workdir,
@@ -61,8 +69,13 @@ impl ExecutionContext {
     }
 
     #[tracing::instrument(skip(self))]
-    pub fn eval(&self, expr: &str) -> Result<CelValue, String> {
-        self.engine.eval(expr).map_err(|err| format!("{:?}", err))
+    pub fn eval_expr(&self, expr: &str) -> Result<CelValue, EvaluationError> {
+        self.engine.eval_expr(expr)
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub fn eval_templ(&self, s: &str) -> Result<String, EvaluationError> {
+        self.engine.eval_templ(s)
     }
 
     #[inline]
@@ -195,30 +208,33 @@ mod tests {
             job_config.clone(),
         );
 
-        assert_eq!(ctx.eval("1 + 1").unwrap(), CelValue::Int(2));
+        assert_eq!(ctx.eval_expr("1 + 1").unwrap(), CelValue::Int(2));
         assert_eq!(
-            ctx.eval("scans.example[0].id").unwrap(),
+            ctx.eval_expr("scans.example[0].id").unwrap(),
             CelValue::String(job_config.scans["example"][0].id.to_string())
         );
         assert_eq!(
-            ctx.eval("project.id").unwrap(),
+            ctx.eval_expr("project.id").unwrap(),
             CelValue::String(job_config.project.id.to_string())
         );
         assert_eq!(
-            ctx.eval("workflow.id").unwrap(),
+            ctx.eval_expr("workflow.id").unwrap(),
             CelValue::String(job_config.workflow.id.to_string())
         );
         assert_eq!(
-            ctx.eval("revision.id").unwrap(),
+            ctx.eval_expr("revision.id").unwrap(),
             CelValue::String(job_config.revision.id.to_string())
         );
         assert_eq!(
-            ctx.eval("vars.key").unwrap(),
+            ctx.eval_expr("vars.key").unwrap(),
             CelValue::String("value".to_string())
         );
-        assert_eq!(ctx.eval("name").unwrap(), CelValue::String(job_config.name));
         assert_eq!(
-            ctx.eval("id").unwrap(),
+            ctx.eval_expr("name").unwrap(),
+            CelValue::String(job_config.name)
+        );
+        assert_eq!(
+            ctx.eval_expr("id").unwrap(),
             CelValue::String(job_config.id.to_string())
         );
     }

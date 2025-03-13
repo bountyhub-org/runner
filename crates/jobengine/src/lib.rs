@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::Arc;
+use templ::{Template, Token};
 use uuid::Uuid;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -105,8 +106,45 @@ impl JobEngine {
         JobEngine { ctx }
     }
 
+    pub fn eval_templ(&self, s: &str) -> Result<String, EvaluationError> {
+        let Template { tokens } = s.parse().map_err(|e| {
+            Report::new(EvaluationError)
+                .attach_printable(format!("Failed to parse template {s}: {e:?}"))
+        })?;
+
+        let mut output = String::new();
+
+        for token in tokens {
+            match token {
+                Token::Lit(lit) => output.push_str(&lit),
+                Token::Expr(expr) => {
+                    let value = self.eval_expr(&expr)?;
+
+                    let value = match value {
+                        Value::Int(val) => val.to_string(),
+                        Value::Uint(val) => val.to_string(),
+                        Value::Double(val) => val.to_string(),
+                        Value::String(val) => val.to_string(),
+                        Value::Bool(val) => val.to_string(),
+                        Value::Duration(val) => val.to_string(),
+                        Value::Timestamp(val) => val.to_string(),
+                        Value::Null => "".to_string(),
+                        val => {
+                            return Err(Report::new(EvaluationError)
+                                .attach_printable(format!("Unsupported value type: {val:?}")))
+                        }
+                    };
+
+                    output.push_str(&value);
+                }
+            }
+        }
+
+        Ok(output)
+    }
+
     /// Evaluates the given expression and returns the result
-    pub fn eval(&self, expr: &str) -> Result<Value, EvaluationError> {
+    pub fn eval_expr(&self, expr: &str) -> Result<Value, EvaluationError> {
         match cellang::eval(&self.ctx.build(), expr) {
             Ok(value) => Ok(value),
             Err(err) => Err(Report::new(EvaluationError).attach_printable(format!("{err:?}"))),
@@ -327,7 +365,7 @@ mod tests {
 
     fn assert_eval(cfg: &Config, expr: &str, expected: bool) {
         let engine = JobEngine::new(cfg);
-        let result = engine.eval(expr).expect("failed to evaluate {expr}");
+        let result = engine.eval_expr(expr).expect("failed to evaluate {expr}");
         assert_eq!(result, Value::Bool(expected));
     }
 
@@ -628,14 +666,14 @@ mod tests {
         let scan_jobs = BTreeMap::new();
         let cfg = test_config(Uuid::now_v7(), "scan1", scan_jobs);
         let mut engine = JobEngine::new(&cfg);
-        let result = engine.eval("ok").unwrap();
+        let result = engine.eval_expr("ok").unwrap();
         assert_eq!(result, Value::Bool(true));
-        let result = engine.eval("always").unwrap();
+        let result = engine.eval_expr("always").unwrap();
         assert_eq!(result, Value::Bool(true));
         engine.set_ok(false);
-        let result = engine.eval("ok").unwrap();
+        let result = engine.eval_expr("ok").unwrap();
         assert_eq!(result, Value::Bool(false));
-        let result = engine.eval("always").unwrap();
+        let result = engine.eval_expr("always").unwrap();
         assert_eq!(result, Value::Bool(true));
     }
 
@@ -646,7 +684,7 @@ mod tests {
         let cfg = test_config(Uuid::now_v7(), "scan1", scan_jobs);
         let engine = JobEngine::new(&cfg);
         let result = engine
-            .eval("has(inputs.test)")
+            .eval_expr("has(inputs.test)")
             .expect("has should not fail");
         assert_eq!(
             result,
@@ -654,7 +692,7 @@ mod tests {
             "expected has(inputs.test) to be false"
         );
 
-        let result = engine.eval("inputs.test");
+        let result = engine.eval_expr("inputs.test");
         assert!(result.is_err(), "expected error, got {result:?}");
     }
 
@@ -675,7 +713,7 @@ mod tests {
         let engine = JobEngine::new(&cfg);
 
         let result = engine
-            .eval("has(inputs.key_str)")
+            .eval_expr("has(inputs.key_str)")
             .expect("has should not fail");
         assert_eq!(
             result,
@@ -684,12 +722,12 @@ mod tests {
         );
 
         let result = engine
-            .eval("inputs.key_str")
+            .eval_expr("inputs.key_str")
             .expect("expected inputs.key_str to exist");
         assert_eq!(result, Value::String("example".to_string()));
 
         let result = engine
-            .eval("has(inputs.key_bool)")
+            .eval_expr("has(inputs.key_bool)")
             .expect("has should not fail");
         assert_eq!(
             result,
@@ -698,7 +736,7 @@ mod tests {
         );
 
         let result = engine
-            .eval("inputs.key_bool")
+            .eval_expr("inputs.key_bool")
             .expect("expected inputs.key_bool to exist");
         assert_eq!(result, Value::Bool(true));
     }

@@ -17,7 +17,6 @@ shlex = "1.3.0"
 time = "^0.3"
 client = { path = "../client" }
 ctx = { path = "../ctx" }
-templ = { path = "../templ" }
 artifact = { path = "../artifact" }
 jobengine = { path = "../jobengine" }
 

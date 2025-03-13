@@ -811,6 +811,7 @@ dependencies = [
  "miette",
  "serde",
  "serde_json",
+ "templ",
  "uuid",
 ]
 
@@ -1933,7 +1934,6 @@ dependencies = [
  "jobengine",
  "mockall",
  "shlex",
- "templ",
  "time",
  "tracing",
  "uuid",
