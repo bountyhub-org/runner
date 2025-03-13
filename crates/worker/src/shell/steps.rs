@@ -14,7 +14,6 @@ use std::process::{Command, Stdio};
 use std::sync::mpsc::{self, TryRecvError};
 use std::time::Duration;
 use std::{fmt, thread};
-use templ::{Template, Token};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
@@ -165,7 +164,7 @@ impl StepsRunner {
     fn should_run_step(&self, step: &Step) -> Result<bool, ExecutionError> {
         tracing::debug!("Evaluating condition for step: {step:?}");
         match step {
-            Step::Command { cond, .. } => match self.execution_ctx.eval(cond) {
+            Step::Command { cond, .. } => match self.execution_ctx.eval_expr(cond) {
                 Ok(val) => match val {
                     Value::Bool(v) => Ok(v),
                     v => Err(Report::new(ExecutionError).attach_printable(format!(
@@ -444,38 +443,14 @@ impl CommandStep<'_> {
         &self,
         ctx: Ctx<Background>,
         execution_ctx: &ExecutionContext,
-    ) -> std::result::Result<PathBuf, String> {
-        let Template { tokens } = self
-            .run
-            .parse()
-            .map_err(|e| format!("Failed to parse template: {:?}", e))?;
-
-        let mut output = String::new();
-        for token in tokens {
-            match token {
-                Token::Lit(lit) => output.push_str(&lit),
-                Token::Expr(expr) => {
-                    let value = execution_ctx.eval(&expr)?;
-
-                    let value = match value {
-                        Value::Int(val) => val.to_string(),
-                        Value::Uint(val) => val.to_string(),
-                        Value::Double(val) => val.to_string(),
-                        Value::String(val) => val.to_string(),
-                        Value::Bool(val) => val.to_string(),
-                        Value::Duration(val) => val.to_string(),
-                        Value::Timestamp(val) => val.to_string(),
-                        Value::Null => "".to_string(),
-                        val => return Err(format!("Unsupported value type: {val:?}")),
-                    };
-
-                    output.push_str(&value);
-                }
-            }
-        }
+    ) -> Result<PathBuf, ExecutionError> {
+        let code = execution_ctx
+            .eval_templ(self.run)
+            .change_context(ExecutionError)
+            .attach_printable("failed to parse code")?;
 
         if ctx.is_done() {
-            return Err("Context is done".to_string());
+            return Err(Report::new(ContextCancelledError).change_context(ExecutionError));
         }
 
         let file_path = Path::new(execution_ctx.workdir()).join(Uuid::new_v4().to_string());
@@ -483,12 +458,14 @@ impl CommandStep<'_> {
             let mut f = match File::create(&file_path) {
                 Ok(f) => f,
                 Err(err) => {
-                    return Err(err.to_string());
+                    return Err(Report::new(ExecutionError)
+                        .attach_printable(format!("Failed to crete file {file_path:?}: {err:?}")));
                 }
             };
 
-            if let Err(err) = f.write_all(output.as_bytes()) {
-                return Err(err.to_string());
+            if let Err(err) = f.write_all(code.as_bytes()) {
+                return Err(Report::new(ExecutionError)
+                    .attach_printable(format!("Failed to write bytes into a file: {err:?}")));
             }
         }
 
@@ -595,7 +572,7 @@ pub struct StepError;
 
 impl fmt::Display for StepError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "StepError")
+        write!(f, "Step error")
     }
 }
 
@@ -606,11 +583,22 @@ pub struct ExecutionError;
 
 impl fmt::Display for ExecutionError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "ExecutionError")
+        write!(f, "Execution error")
     }
 }
 
 impl Context for ExecutionError {}
+
+#[derive(Debug)]
+pub struct ContextCancelledError;
+
+impl fmt::Display for ContextCancelledError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Context cancelled")
+    }
+}
+
+impl Context for ContextCancelledError {}
 
 #[cfg(test)]
 mod tests {
@@ -631,6 +619,7 @@ mod tests {
             workflow: WorkflowMeta { id: Uuid::now_v7() },
             revision: WorkflowRevisionMeta { id: Uuid::now_v7() },
             vars: BTreeMap::new(),
+            envs: BTreeMap::new(),
             inputs: None,
         }
     }

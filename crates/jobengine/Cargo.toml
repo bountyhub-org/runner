@@ -16,6 +16,7 @@ serde_json = { version = "^1" }
 cellang = { version = "^0.4" }
 error-stack = "^0.5"
 miette = { version = "^7", features = ["fancy"] }
+templ = { path = "../templ" }
 
 [dev-dependencies]
 miette = { version = "^7", features = ["fancy"] }
