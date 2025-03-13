@@ -14,8 +14,10 @@ pub struct Config {
     /// The name of the job from which the evaluation is done
     pub name: String,
     /// Variables associated with the workflow
+    #[serde(default)]
     pub vars: BTreeMap<String, String>,
     /// Workflow environment variables
+    #[serde(default)]
     pub envs: BTreeMap<String, String>,
     /// Custom inputs
     pub inputs: Option<BTreeMap<String, InputValue>>,
