@@ -96,7 +96,7 @@ impl RegistrationClient for HttpRegistrationClient {
                 .set("Content-Type", "application/json")
                 .set("User-Agent", &self.user_agent)
                 .send_json(ureq::json!(request))
-                .map_err(|e| ClientError::from(e))
+                .map_err(ClientError::from)
             {
                 Ok(res) => State::Done(res),
                 Err(ClientError::RetryableError) => State::Retry(retry),
@@ -108,7 +108,7 @@ impl RegistrationClient for HttpRegistrationClient {
             Ok(res) => {
                 let reg: RegistrationResponse = res
                     .into_json()
-                    .map_err(|err| OperationError::from(err))
+                    .map_err(OperationError::from)
                     .wrap_err("Failed to deserialize job resolved response")?;
 
                 tracing::debug!("Registered with hub: {:?}", reg);

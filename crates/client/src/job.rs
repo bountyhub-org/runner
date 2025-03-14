@@ -260,7 +260,7 @@ impl JobClient for HttpJobClient {
                 .set("User-Agent", &self.user_agent)
                 .set("Content-Type", "application/json")
                 .call()
-                .map_err(|e| ClientError::from(e))
+                .map_err(ClientError::from)
             {
                 Ok(res) => State::Done(res),
                 Err(ClientError::RetryableError) => State::Retry(retry),
@@ -272,7 +272,7 @@ impl JobClient for HttpJobClient {
             Ok(res) => {
                 let res = res
                     .into_json::<JobResolvedResponse>()
-                    .map_err(|err| OperationError::from(err))
+                    .map_err(OperationError::from)
                     .wrap_err("Failed to deserialize job resolved response")?;
 
                 Ok(res)
@@ -307,7 +307,7 @@ impl JobClient for HttpJobClient {
                 .set("User-Agent", &self.user_agent)
                 .set("Content-Type", "application/json")
                 .send_json(ureq::json!(timeline))
-                .map_err(|e| ClientError::from(e))
+                .map_err(ClientError::from)
             {
                 Ok(res) => State::Done(res),
                 Err(ClientError::RetryableError) => State::Retry(retry),
@@ -347,7 +347,7 @@ impl JobClient for HttpJobClient {
                 .set("Authorization", &self.token)
                 .set("Content-Type", "application/json")
                 .send_json(&logs)
-                .map_err(|e| ClientError::from(e))
+                .map_err(ClientError::from)
             {
                 Ok(_) => State::Done(()),
                 Err(ClientError::RetryableError) => State::Retry(retry),
@@ -373,7 +373,7 @@ impl JobClient for HttpJobClient {
         let retry = || ctx.is_done();
         let mut recoil = self.recoil.clone();
 
-        let file_size = file.metadata().map_err(|e| OperationError::from(e))?.len();
+        let file_size = file.metadata().map_err(OperationError::from)?.len();
 
         let client = self.pool.assets_client();
         let res = recoil.run(|| {
@@ -384,7 +384,7 @@ impl JobClient for HttpJobClient {
                 .set("Content-Length", &file_size.to_string())
                 .set("Content-Type", "application/octet-stream")
                 .send(&file)
-                .map_err(|e| ClientError::from(e))
+                .map_err(ClientError::from)
             {
                 Ok(_) => State::Done(()),
                 Err(ClientError::RetryableError) => State::Retry(retry),

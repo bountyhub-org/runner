@@ -112,7 +112,7 @@ impl RunnerClient for HttpRunnerClient {
                 .set("Authorization", &token)
                 .set("User-Agent", &self.user_agent)
                 .call()
-                .map_err(|e| ClientError::from(e))
+                .map_err(ClientError::from)
             {
                 Ok(res) => State::Done(res),
                 Err(ClientError::RetryableError) => State::Retry(retry),
@@ -156,7 +156,7 @@ impl RunnerClient for HttpRunnerClient {
                 .set("Authorization", &token)
                 .set("User-Agent", &self.user_agent)
                 .call()
-                .map_err(|e| ClientError::from(e))
+                .map_err(ClientError::from)
             {
                 Ok(res) => State::Done(res),
                 Err(ClientError::RetryableError) => State::Retry(retry),
@@ -201,7 +201,7 @@ impl RunnerClient for HttpRunnerClient {
                 .set("User-Agent", &self.user_agent)
                 .set("Content-Type", "application/json")
                 .send_json(ureq::json!(PollRequest { capacity }))
-                .map_err(|e| ClientError::from(e))
+                .map_err(ClientError::from)
             {
                 Ok(res) => State::Done(res),
                 Err(ClientError::RetryableError) => State::Retry(retry),
@@ -214,7 +214,7 @@ impl RunnerClient for HttpRunnerClient {
                 self.update_token(&res);
                 let res: Vec<JobAcquiredResponse> = res
                     .into_json()
-                    .map_err(|err| OperationError::from(err))
+                    .map_err(OperationError::from)
                     .wrap_err("Failed to deserialize job resolved response")?;
                 Ok(res)
             }
@@ -251,7 +251,7 @@ impl RunnerClient for HttpRunnerClient {
                 .set("User-Agent", &self.user_agent)
                 .set("Content-Type", "application/json")
                 .send_json(ureq::json!(CompleteRequest { job_id }))
-                .map_err(|e| ClientError::from(e))
+                .map_err(ClientError::from)
             {
                 Ok(res) => State::Done(res),
                 Err(ClientError::RetryableError) => State::Retry(retry),
