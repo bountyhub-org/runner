@@ -13,7 +13,7 @@ resolver = "2"
 [dependencies]
 clap = { version = "^4", features = ["derive"] }
 clap_complete = "^4"
-miette = "^7"
+miette = { version = "^7", features = ["fancy"] }
 tracing = "^0.1"
 tracing-subscriber = "^0.3"
 sudoservice = "0.1.0"

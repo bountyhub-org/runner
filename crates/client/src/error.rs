@@ -1,29 +1,45 @@
 use miette::Diagnostic;
 use std::io;
 use thiserror::Error;
-use ureq::Error as UreqError;
+use ureq::{Error as UreqError, Transport};
 
 #[derive(Diagnostic, Debug, Error)]
 #[diagnostic(code(client::client_error))]
 pub enum ClientError {
-    #[error("Retryable error")]
-    RetryableError,
+    #[error("Server error")]
+    ServerError,
 
-    // TODO: handle 409
+    #[error("Unauthorized")]
+    UnauthorizedError,
+
+    #[error("Conflict")]
+    ConflictError,
+
+    #[error("Response error")]
+    ResponseError(u16),
+
+    #[error("Connection error")]
+    ConnectionError(Transport),
+
     #[error("Fatal error")]
-    FatalError,
+    FatalError(Transport),
+
+    #[error("Operation cancelled")]
+    CancellationError,
 }
 
 impl From<UreqError> for ClientError {
     fn from(value: UreqError) -> Self {
         match value {
-            UreqError::Status(500.., ..) => ClientError::RetryableError,
-            UreqError::Status(..) => ClientError::FatalError,
-            UreqError::Transport(err) => match err.kind() {
+            UreqError::Status(500.., ..) => ClientError::ServerError,
+            UreqError::Status(401 | 403, ..) => ClientError::UnauthorizedError,
+            UreqError::Status(409, ..) => ClientError::ConflictError,
+            UreqError::Status(status, ..) => ClientError::ResponseError(status),
+            UreqError::Transport(e) => match e.kind() {
                 ureq::ErrorKind::ProxyConnect | ureq::ErrorKind::ConnectionFailed => {
-                    ClientError::RetryableError
+                    ClientError::ConnectionError(e)
                 }
-                _e => ClientError::FatalError,
+                _e => ClientError::FatalError(e),
             },
         }
     }

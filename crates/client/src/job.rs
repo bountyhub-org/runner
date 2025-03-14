@@ -250,7 +250,8 @@ impl JobClient for HttpJobClient {
         let res = recoil.run(|| {
             if ctx.is_done() {
                 return State::Fail(
-                    miette::miette!("Context is cancelled").wrap_err(ClientError::FatalError),
+                    miette::miette!("Context is cancelled")
+                        .wrap_err(ClientError::CancellationError),
                 );
             }
 
@@ -263,7 +264,9 @@ impl JobClient for HttpJobClient {
                 .map_err(ClientError::from)
             {
                 Ok(res) => State::Done(res),
-                Err(ClientError::RetryableError) => State::Retry(retry),
+                Err(ClientError::ServerError | ClientError::ConnectionError(..)) => {
+                    State::Retry(retry)
+                }
                 Err(e) => State::Fail(miette::miette!("Failed to resolve the job").wrap_err(e)),
             }
         });
@@ -296,9 +299,7 @@ impl JobClient for HttpJobClient {
 
         let res = recoil.run(|| {
             if ctx.is_done() {
-                return State::Fail(
-                    miette::miette!("Context is cancelled").wrap_err(ClientError::FatalError),
-                );
+                return State::Fail(ClientError::CancellationError.into());
             }
 
             match client
@@ -310,7 +311,9 @@ impl JobClient for HttpJobClient {
                 .map_err(ClientError::from)
             {
                 Ok(res) => State::Done(res),
-                Err(ClientError::RetryableError) => State::Retry(retry),
+                Err(ClientError::ServerError | ClientError::ConnectionError(..)) => {
+                    State::Retry(retry)
+                }
                 Err(e) => State::Fail(miette::miette!("Failed to post the timeline").wrap_err(e)),
             }
         });
@@ -337,9 +340,7 @@ impl JobClient for HttpJobClient {
 
         let res = recoil.run(|| {
             if ctx.is_done() {
-                return State::Fail(
-                    miette::miette!("Context is cancelled").wrap_err(ClientError::FatalError),
-                );
+                return State::Fail(ClientError::CancellationError.into());
             }
 
             match client
@@ -350,8 +351,10 @@ impl JobClient for HttpJobClient {
                 .map_err(ClientError::from)
             {
                 Ok(_) => State::Done(()),
-                Err(ClientError::RetryableError) => State::Retry(retry),
-                Err(e) => State::Fail(miette::miette!("Failed to resolve the job").wrap_err(e)),
+                Err(ClientError::ServerError | ClientError::ConnectionError(..)) => {
+                    State::Retry(retry)
+                }
+                Err(e) => State::Fail(miette::miette!("Failed to send the job logs").wrap_err(e)),
             }
         });
 
@@ -387,8 +390,12 @@ impl JobClient for HttpJobClient {
                 .map_err(ClientError::from)
             {
                 Ok(_) => State::Done(()),
-                Err(ClientError::RetryableError) => State::Retry(retry),
-                Err(e) => State::Fail(miette::miette!("Failed to resolve the job").wrap_err(e)),
+                Err(ClientError::ServerError | ClientError::ConnectionError(..)) => {
+                    State::Retry(retry)
+                }
+                Err(e) => {
+                    State::Fail(miette::miette!("Failed to upload the job artifact").wrap_err(e))
+                }
             }
         });
 

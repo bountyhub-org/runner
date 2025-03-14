@@ -102,9 +102,7 @@ impl RunnerClient for HttpRunnerClient {
         let mut recoil = self.recoil.clone();
         let res = recoil.run(|| {
             if ctx.is_done() {
-                return State::Fail(
-                    miette::miette!("Context is cancelled").wrap_err(ClientError::FatalError),
-                );
+                return State::Fail(ClientError::CancellationError.into());
             }
             tracing::debug!("Saying hello to the server");
             match client
@@ -115,8 +113,12 @@ impl RunnerClient for HttpRunnerClient {
                 .map_err(ClientError::from)
             {
                 Ok(res) => State::Done(res),
-                Err(ClientError::RetryableError) => State::Retry(retry),
-                Err(e) => State::Fail(miette::miette!("Failed to resolve the job").wrap_err(e)),
+                Err(ClientError::ServerError | ClientError::ConnectionError(..)) => {
+                    State::Retry(retry)
+                }
+                Err(e) => State::Fail(
+                    miette::miette!("Failed to initialize contact with the server").wrap_err(e),
+                ),
             }
         });
 
@@ -147,9 +149,7 @@ impl RunnerClient for HttpRunnerClient {
         let mut recoil = self.recoil.clone();
         let res = recoil.run(|| {
             if ctx.is_done() {
-                return State::Fail(
-                    miette::miette!("Context is cancelled").wrap_err(ClientError::FatalError),
-                );
+                return State::Fail(ClientError::CancellationError.into());
             }
             match client
                 .post(&endpoint)
@@ -159,8 +159,10 @@ impl RunnerClient for HttpRunnerClient {
                 .map_err(ClientError::from)
             {
                 Ok(res) => State::Done(res),
-                Err(ClientError::RetryableError) => State::Retry(retry),
-                Err(e) => State::Fail(miette::miette!("Failed to resolve the job").wrap_err(e)),
+                Err(ClientError::ServerError | ClientError::ConnectionError(..)) => {
+                    State::Retry(retry)
+                }
+                Err(e) => State::Fail(miette::miette!("Failed to notify shutdown").wrap_err(e)),
             }
         });
 
@@ -191,9 +193,7 @@ impl RunnerClient for HttpRunnerClient {
         let client = self.pool.long_poll_client();
         let res = recoil.run(|| {
             if ctx.is_done() {
-                return State::Fail(
-                    miette::miette!("Context is cancelled").wrap_err(ClientError::FatalError),
-                );
+                return State::Fail(ClientError::CancellationError.into());
             }
             match client
                 .post(&endpoint)
@@ -204,8 +204,10 @@ impl RunnerClient for HttpRunnerClient {
                 .map_err(ClientError::from)
             {
                 Ok(res) => State::Done(res),
-                Err(ClientError::RetryableError) => State::Retry(retry),
-                Err(e) => State::Fail(miette::miette!("Failed to resolve the job").wrap_err(e)),
+                Err(ClientError::ServerError | ClientError::ConnectionError(..)) => {
+                    State::Retry(retry)
+                }
+                Err(e) => State::Fail(miette::miette!("Failed to request the job").wrap_err(e)),
             }
         });
 
@@ -240,9 +242,7 @@ impl RunnerClient for HttpRunnerClient {
         let client = self.pool.default_client();
         let res = recoil.run(|| {
             if ctx.is_done() {
-                return State::Fail(
-                    miette::miette!("Context is cancelled").wrap_err(ClientError::FatalError),
-                );
+                return State::Fail(ClientError::CancellationError.into());
             }
 
             match client
@@ -254,8 +254,10 @@ impl RunnerClient for HttpRunnerClient {
                 .map_err(ClientError::from)
             {
                 Ok(res) => State::Done(res),
-                Err(ClientError::RetryableError) => State::Retry(retry),
-                Err(e) => State::Fail(miette::miette!("Failed to resolve the job").wrap_err(e)),
+                Err(ClientError::ServerError | ClientError::ConnectionError(..)) => {
+                    State::Retry(retry)
+                }
+                Err(e) => State::Fail(miette::miette!("Failed to complete the job").wrap_err(e)),
             }
         });
 
