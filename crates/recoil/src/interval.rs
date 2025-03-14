@@ -14,8 +14,8 @@ impl Interval {
         let mul = match self.jitter {
             None => self.multiplier,
             Some((min, max)) => {
-                let mut rng = rand::thread_rng();
-                self.multiplier * rng.gen_range(min..=max)
+                let mut rng = rand::rng();
+                self.multiplier * rng.random_range(min..=max)
             }
         };
         let duration = self.duration.mul_f64(mul).as_millis() / 100;

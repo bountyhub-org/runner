@@ -2,7 +2,7 @@ use client::error::ClientError;
 use client::runner::{JobAcquiredResponse, RunnerClient};
 use config::Config;
 use ctx::{Background, Ctx};
-use miette::{miette, IntoDiagnostic, Result, WrapErr};
+use miette::{miette, IntoDiagnostic, Result};
 #[cfg(test)]
 use mockall::automock;
 use std::collections::BTreeMap;
@@ -242,22 +242,33 @@ fn poll_loop<RC>(
                 poll_tx.send(Ok(jobs)).unwrap();
             }
             Err(e) => {
-                // if e.contains::<FatalError>() {
-                //     poll_tx.send(Err(e)).unwrap();
-                //     return;
-                // }
-                tracing::error!("Failed to poll jobs: {:?}. Sleeping for 30s", e);
-                let mut count = 300; // 10 * 100ms * 30s
-                while !ctx.is_done() && count > 0 {
-                    thread::sleep(Duration::from_millis(100));
-                    count -= 1;
-                }
+                match e.downcast::<ClientError>() {
+                    Ok(e) => match e {
+                        ClientError::FatalError => {
+                            poll_tx.send(Err(e)).unwrap();
+                            return;
+                        }
+                        ClientError::RetryableError => {
+                            tracing::error!("Failed to poll jobs: {:?}. Sleeping for 30s", e);
 
-                if ctx.is_done() {
-                    tracing::info!("Polling context is cancelled");
-                    return;
+                            let mut count = 300; // 10 * 100ms * 30s
+                            while !ctx.is_done() && count > 0 {
+                                thread::sleep(Duration::from_millis(100));
+                                count -= 1;
+                            }
+
+                            if ctx.is_done() {
+                                tracing::info!("Polling context is cancelled");
+                                return;
+                            }
+                            continue;
+                        }
+                    },
+                    e => {
+                        tracing::error!("Received an error {e:?}. Stopping");
+                        return;
+                    }
                 }
-                continue;
             }
         }
     }
