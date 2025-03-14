@@ -212,10 +212,10 @@ impl RunnerClient for HttpRunnerClient {
         match res {
             Ok(res) => {
                 self.update_token(&res);
-                let res: Vec<JobAcquiredResponse> = res
-                    .into_json()
-                    .map_err(OperationError::from)
-                    .wrap_err("Failed to deserialize job resolved response")?;
+                let res: Vec<JobAcquiredResponse> =
+                    res.into_json()
+                        .map_err(OperationError::from)
+                        .wrap_err("Failed to deserialize job resolved response")?;
                 Ok(res)
             }
             Err(recoil::recoil::Error::MaxRetriesReached) => {
