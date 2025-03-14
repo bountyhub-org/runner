@@ -1,12 +1,11 @@
-use super::error::ClientError;
 use crate::{
-    error::{FatalError, RetryableError},
+    error::{ClientError, OperationError},
     pool::ClientPool,
 };
 use config::Config;
 use ctx::{Background, Ctx};
-use error_stack::{Report, Result, ResultExt};
 use jobengine::{JobMeta, ProjectMeta, WorkflowMeta, WorkflowRevisionMeta};
+use miette::{Context, Result};
 #[cfg(feature = "mockall")]
 use mockall::mock;
 use recoil::{Interval, Recoil, State};
@@ -20,7 +19,6 @@ use std::{
     time::Duration,
 };
 use time::OffsetDateTime;
-use ureq::Error as UreqError;
 use uuid::Uuid;
 
 #[derive(Deserialize, Debug, Clone)]
@@ -167,14 +165,10 @@ pub struct LogLine {
 }
 
 pub trait JobClient: Send + Sync + Clone + 'static {
-    fn resolve(&self, ctx: Ctx<Background>) -> Result<JobResolvedResponse, ClientError>;
-    fn post_step_timeline(
-        &self,
-        ctx: Ctx<Background>,
-        timeline: &TimelineRequest,
-    ) -> Result<(), ClientError>;
-    fn send_job_logs(&self, ctx: Ctx<Background>, logs: Vec<LogLine>) -> Result<(), ClientError>;
-    fn upload_job_artifact(&self, ctx: Ctx<Background>, file: File) -> Result<(), ClientError>;
+    fn resolve(&self, ctx: Ctx<Background>) -> Result<JobResolvedResponse>;
+    fn post_step_timeline(&self, ctx: Ctx<Background>, timeline: &TimelineRequest) -> Result<()>;
+    fn send_job_logs(&self, ctx: Ctx<Background>, logs: Vec<LogLine>) -> Result<()>;
+    fn upload_job_artifact(&self, ctx: Ctx<Background>, file: File) -> Result<()>;
 }
 
 #[derive(Debug, Clone)]
@@ -195,15 +189,15 @@ mock! {
     }
 
     impl JobClient for JobClient {
-        fn resolve(&self, ctx: Ctx<Background>) -> Result<JobResolvedResponse, ClientError>;
-        fn post_step_timeline(&self, ctx: Ctx<Background>, timeline: &TimelineRequest) -> Result<(), ClientError>;
+        fn resolve(&self, ctx: Ctx<Background>) -> Result<JobResolvedResponse>;
+        fn post_step_timeline(&self, ctx: Ctx<Background>, timeline: &TimelineRequest) -> Result<()>;
 
     fn send_job_logs(
         &self,
         ctx: Ctx<Background>,
         logs: Vec<LogLine>,
-    ) -> Result<(), ClientError>;
-        fn upload_job_artifact(&self, ctx: Ctx<Background>, file: File) -> Result<(), ClientError>;
+    ) -> Result<()>;
+        fn upload_job_artifact(&self, ctx: Ctx<Background>, file: File) -> Result<()>;
     }
 
 }
@@ -245,7 +239,7 @@ impl HttpJobClient {
 
 impl JobClient for HttpJobClient {
     #[tracing::instrument(skip(self, ctx))]
-    fn resolve(&self, ctx: Ctx<Background>) -> Result<JobResolvedResponse, ClientError> {
+    fn resolve(&self, ctx: Ctx<Background>) -> Result<JobResolvedResponse> {
         let endpoint = {
             let config = self.config.read().unwrap();
             format!("{}/api/v0/jobs/resolve", config.invoker_url)
@@ -255,7 +249,9 @@ impl JobClient for HttpJobClient {
         let mut recoil = self.recoil.clone();
         let res = recoil.run(|| {
             if ctx.is_done() {
-                return State::Fail(Report::new(ClientError).attach_printable("cancelled"));
+                return State::Fail(
+                    miette::miette!("Context is cancelled").wrap_err(ClientError::FatalError),
+                );
             }
 
             match client
@@ -264,22 +260,11 @@ impl JobClient for HttpJobClient {
                 .set("User-Agent", &self.user_agent)
                 .set("Content-Type", "application/json")
                 .call()
+                .map_err(|e| ClientError::from(e))
             {
                 Ok(res) => State::Done(res),
-                Err(UreqError::Status(401 | 403, ..)) => State::Fail(
-                    Report::new(FatalError)
-                        .attach_printable("Unauthorized")
-                        .change_context(ClientError),
-                ),
-                Err(UreqError::Transport(err))
-                    if err.kind() == ureq::ErrorKind::ConnectionFailed =>
-                {
-                    State::Retry(retry)
-                }
-                Err(err) => State::Fail(
-                    Report::new(ClientError)
-                        .attach_printable(format!("Failed to resolve job: {:?}", err)),
-                ),
+                Err(ClientError::RetryableError) => State::Retry(retry),
+                Err(e) => State::Fail(miette::miette!("Failed to resolve the job").wrap_err(e)),
             }
         });
 
@@ -287,24 +272,20 @@ impl JobClient for HttpJobClient {
             Ok(res) => {
                 let res = res
                     .into_json::<JobResolvedResponse>()
-                    .change_context(ClientError)
-                    .attach_printable("failed to read job resolved response")?;
+                    .map_err(|err| OperationError::from(err))
+                    .wrap_err("Failed to deserialize job resolved response")?;
 
                 Ok(res)
             }
-            Err(recoil::recoil::Error::MaxRetriesReached) => Err(Report::new(RetryableError)
-                .attach_printable("Max retries reached")
-                .change_context(ClientError)),
+            Err(recoil::recoil::Error::MaxRetriesReached) => {
+                Err(OperationError::MaxRetriesError.into())
+            }
             Err(recoil::recoil::Error::Custom(e)) => Err(e),
         }
     }
 
     #[tracing::instrument(skip(self, ctx))]
-    fn post_step_timeline(
-        &self,
-        ctx: Ctx<Background>,
-        timeline: &TimelineRequest,
-    ) -> Result<(), ClientError> {
+    fn post_step_timeline(&self, ctx: Ctx<Background>, timeline: &TimelineRequest) -> Result<()> {
         let endpoint = {
             let config = self.config.read().unwrap();
             format!("{}/api/v0/jobs/timeline", config.invoker_url)
@@ -315,7 +296,9 @@ impl JobClient for HttpJobClient {
 
         let res = recoil.run(|| {
             if ctx.is_done() {
-                return State::Fail(Report::new(ClientError).attach_printable("cancelled"));
+                return State::Fail(
+                    miette::miette!("Context is cancelled").wrap_err(ClientError::FatalError),
+                );
             }
 
             match client
@@ -324,30 +307,24 @@ impl JobClient for HttpJobClient {
                 .set("User-Agent", &self.user_agent)
                 .set("Content-Type", "application/json")
                 .send_json(ureq::json!(timeline))
+                .map_err(|e| ClientError::from(e))
             {
                 Ok(res) => State::Done(res),
-                Err(UreqError::Transport(err))
-                    if err.kind() == ureq::ErrorKind::ConnectionFailed =>
-                {
-                    State::Retry(retry)
-                }
-                Err(err) => State::Fail(
-                    Report::new(ClientError)
-                        .attach_printable(format!("Failed to post step timeline: {:?}", err)),
-                ),
+                Err(ClientError::RetryableError) => State::Retry(retry),
+                Err(e) => State::Fail(miette::miette!("Failed to post the timeline").wrap_err(e)),
             }
         });
 
         match res {
             Ok(_) => Ok(()),
-            Err(recoil::recoil::Error::MaxRetriesReached) => Err(Report::new(RetryableError)
-                .attach_printable("Max retries reached")
-                .change_context(ClientError)),
+            Err(recoil::recoil::Error::MaxRetriesReached) => {
+                Err(OperationError::MaxRetriesError.into())
+            }
             Err(recoil::recoil::Error::Custom(e)) => Err(e),
         }
     }
 
-    fn send_job_logs(&self, ctx: Ctx<Background>, logs: Vec<LogLine>) -> Result<(), ClientError> {
+    fn send_job_logs(&self, ctx: Ctx<Background>, logs: Vec<LogLine>) -> Result<()> {
         let endpoint = {
             let config = self.config.read().unwrap();
             format!("{}/api/v0/jobs/logs", &config.fluxy_url,)
@@ -360,7 +337,9 @@ impl JobClient for HttpJobClient {
 
         let res = recoil.run(|| {
             if ctx.is_done() {
-                return State::Fail(Report::new(ClientError).attach_printable("cancelled"));
+                return State::Fail(
+                    miette::miette!("Context is cancelled").wrap_err(ClientError::FatalError),
+                );
             }
 
             match client
@@ -368,31 +347,25 @@ impl JobClient for HttpJobClient {
                 .set("Authorization", &self.token)
                 .set("Content-Type", "application/json")
                 .send_json(&logs)
+                .map_err(|e| ClientError::from(e))
             {
                 Ok(_) => State::Done(()),
-                Err(UreqError::Transport(err))
-                    if err.kind() == ureq::ErrorKind::ConnectionFailed =>
-                {
-                    State::Retry(retry)
-                }
-                Err(err) => State::Fail(
-                    Report::new(ClientError)
-                        .attach_printable(format!("Failed to post step timeline: {:?}", err)),
-                ),
+                Err(ClientError::RetryableError) => State::Retry(retry),
+                Err(e) => State::Fail(miette::miette!("Failed to resolve the job").wrap_err(e)),
             }
         });
 
         match res {
             Ok(_) => Ok(()),
-            Err(recoil::recoil::Error::MaxRetriesReached) => Err(Report::new(RetryableError)
-                .attach_printable("Max retries reached")
-                .change_context(ClientError)),
+            Err(recoil::recoil::Error::MaxRetriesReached) => {
+                Err(OperationError::MaxRetriesError.into())
+            }
             Err(recoil::recoil::Error::Custom(e)) => Err(e),
         }
     }
 
     #[tracing::instrument(skip(self, ctx))]
-    fn upload_job_artifact(&self, ctx: Ctx<Background>, file: File) -> Result<(), ClientError> {
+    fn upload_job_artifact(&self, ctx: Ctx<Background>, file: File) -> Result<()> {
         let endpoint = {
             let config = self.config.read().unwrap();
             format!("{}/api/v0/jobs/results", &config.fluxy_url)
@@ -400,11 +373,7 @@ impl JobClient for HttpJobClient {
         let retry = || ctx.is_done();
         let mut recoil = self.recoil.clone();
 
-        let file_size = file
-            .metadata()
-            .attach_printable("failed to read metadata from zip file")
-            .change_context(ClientError)?
-            .len();
+        let file_size = file.metadata().map_err(|e| OperationError::from(e))?.len();
 
         let client = self.pool.assets_client();
         let res = recoil.run(|| {
@@ -415,30 +384,20 @@ impl JobClient for HttpJobClient {
                 .set("Content-Length", &file_size.to_string())
                 .set("Content-Type", "application/octet-stream")
                 .send(&file)
+                .map_err(|e| ClientError::from(e))
             {
                 Ok(_) => State::Done(()),
-                Err(UreqError::Transport(err))
-                    if err.kind() == ureq::ErrorKind::ConnectionFailed =>
-                {
-                    State::Retry(retry)
-                }
-                Err(err) => State::Fail(
-                    Report::new(ClientError)
-                        .attach_printable(format!("Failed to upload job artifact: {:?}", err)),
-                ),
+                Err(ClientError::RetryableError) => State::Retry(retry),
+                Err(e) => State::Fail(miette::miette!("Failed to resolve the job").wrap_err(e)),
             }
         });
 
         match res {
             Ok(_) => Ok(()),
             Err(recoil::recoil::Error::MaxRetriesReached) => {
-                return Err(Report::new(RetryableError)
-                    .attach_printable("Max retries reached")
-                    .change_context(ClientError));
+                Err(OperationError::MaxRetriesError.into())
             }
-            Err(recoil::recoil::Error::Custom(e)) => {
-                return Err(e);
-            }
+            Err(recoil::recoil::Error::Custom(e)) => Err(e),
         }
     }
 }

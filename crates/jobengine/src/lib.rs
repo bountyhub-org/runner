@@ -1,8 +1,7 @@
 use cellang::{Environment, EnvironmentBuilder, Key, Map, TokenTree, Value};
-use error_stack::{Context as ErrorContext, Report, Result};
+use miette::{Result, WrapErr};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::fmt;
 use std::sync::Arc;
 use templ::{Template, Token};
 use uuid::Uuid;
@@ -106,11 +105,8 @@ impl JobEngine {
         JobEngine { ctx }
     }
 
-    pub fn eval_templ(&self, s: &str) -> Result<String, EvaluationError> {
-        let Template { tokens } = s.parse().map_err(|e| {
-            Report::new(EvaluationError)
-                .attach_printable(format!("Failed to parse template {s}: {e:?}"))
-        })?;
+    pub fn eval_templ(&self, s: &str) -> Result<String> {
+        let Template { tokens } = s.parse().wrap_err("failed to parse expression")?;
 
         let mut output = String::new();
 
@@ -129,10 +125,7 @@ impl JobEngine {
                         Value::Duration(val) => val.to_string(),
                         Value::Timestamp(val) => val.to_string(),
                         Value::Null => "".to_string(),
-                        val => {
-                            return Err(Report::new(EvaluationError)
-                                .attach_printable(format!("Unsupported value type: {val:?}")))
-                        }
+                        val => return Err(miette::miette!("Unsupported value type: {val:?}")),
                     };
 
                     output.push_str(&value);
@@ -144,11 +137,8 @@ impl JobEngine {
     }
 
     /// Evaluates the given expression and returns the result
-    pub fn eval_expr(&self, expr: &str) -> Result<Value, EvaluationError> {
-        match cellang::eval(&self.ctx.build(), expr) {
-            Ok(value) => Ok(value),
-            Err(err) => Err(Report::new(EvaluationError).attach_printable(format!("{err:?}"))),
-        }
+    pub fn eval_expr(&self, expr: &str) -> Result<Value> {
+        cellang::eval(&self.ctx.build(), expr).wrap_err("failed to evaluate expression")
     }
 
     /// Sets the value of the `ok` variable
@@ -332,17 +322,6 @@ fn has_diff(env: &Environment, tokens: &[TokenTree]) -> std::result::Result<Valu
 
     Ok(Value::Bool(previous.nonce != latest.nonce))
 }
-
-#[derive(Debug)]
-pub struct EvaluationError;
-
-impl fmt::Display for EvaluationError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "evaluation error")
-    }
-}
-
-impl ErrorContext for EvaluationError {}
 
 #[cfg(test)]
 mod tests {

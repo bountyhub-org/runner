@@ -10,7 +10,8 @@ keywords = ["bountyhub", "runner", "client"]
 resolver = "2"
 
 [dependencies]
-error-stack = "^0.5"
+miette = { version = "^7" }
+thiserror = "^2"
 serde = { version = "^1", features = ["derive"] }
 tracing = "^0.1"
 ureq = { version = "^2", features = ["json", "native-certs"] }

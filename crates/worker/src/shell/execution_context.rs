@@ -1,7 +1,7 @@
 use cellang::Value as CelValue;
 use client::job::{TimelineRequestStepOutcome, TimelineRequestStepState};
-use error_stack::Result;
-use jobengine::{EvaluationError, JobEngine};
+use jobengine::JobEngine;
+use miette::Result;
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -69,12 +69,12 @@ impl ExecutionContext {
     }
 
     #[tracing::instrument(skip(self))]
-    pub fn eval_expr(&self, expr: &str) -> Result<CelValue, EvaluationError> {
+    pub fn eval_expr(&self, expr: &str) -> Result<CelValue> {
         self.engine.eval_expr(expr)
     }
 
     #[tracing::instrument(skip(self))]
-    pub fn eval_templ(&self, s: &str) -> Result<String, EvaluationError> {
+    pub fn eval_templ(&self, s: &str) -> Result<String> {
         self.engine.eval_templ(s)
     }
 

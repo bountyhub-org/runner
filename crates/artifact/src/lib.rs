@@ -1,8 +1,8 @@
 use ctx::{Background, Ctx};
-use error_stack::{bail, Context, Report, Result, ResultExt};
+use miette::{bail, IntoDiagnostic, Result, WrapErr};
 use std::fs::File;
 use std::path::{Component, Path, PathBuf};
-use std::{fmt, fs, io};
+use std::{fs, io};
 use uuid::Uuid;
 use zip::write::{FileOptionExtension, FileOptions, SimpleFileOptions};
 use zip::ZipWriter;
@@ -13,7 +13,7 @@ pub struct ArtifactBuilder {
     root_dir: PathBuf,
 }
 
-fn normalize_to_relative_path(root: &PathBuf, s: &str) -> Result<PathBuf, ArtifactError> {
+fn normalize_to_relative_path(root: &PathBuf, s: &str) -> Result<PathBuf> {
     let path = Path::new(s);
     let mut components = path.components().peekable();
     let mut ret = if let Some(c @ Component::Prefix(..)) = components.peek().cloned() {
@@ -27,16 +27,12 @@ fn normalize_to_relative_path(root: &PathBuf, s: &str) -> Result<PathBuf, Artifa
         match component {
             Component::Prefix(..) => unreachable!(),
             Component::RootDir => {
-                bail!(ArtifactError(format!(
-                    "upload record {s} cannot be taken from the root"
-                )));
+                bail!("upload record {s} cannot be taken from the root");
             }
             Component::CurDir => {}
             Component::ParentDir => {
                 if !ret.pop() {
-                    bail!(ArtifactError(format!(
-                        "upload record {s} cannot be outside of the present working directory"
-                    )));
+                    bail!("upload record {s} cannot be outside of the present working directory");
                 }
             }
             Component::Normal(c) => {
@@ -49,34 +45,32 @@ fn normalize_to_relative_path(root: &PathBuf, s: &str) -> Result<PathBuf, Artifa
     let canonized = root
         .join(ret)
         .canonicalize()
-        .change_context(ArtifactError("failed to canonicalize path".to_string()))?;
+        .into_diagnostic()
+        .wrap_err("failed to canonicalize path")?;
 
     if !canonized.starts_with(root) {
-        bail!(ArtifactError(format!(
-            "path '{s}' after resolution to '{canonized:?}' doesn't start with {root:?}",
-        )))
+        bail!("path '{s}' after resolution to '{canonized:?}' doesn't start with {root:?}",)
     }
 
     Ok(canonized)
 }
 
 impl ArtifactBuilder {
-    pub fn new(root_dir: &PathBuf, uploads: Vec<String>) -> Result<Self, ArtifactError> {
+    pub fn new(root_dir: &Path, uploads: Vec<String>) -> Result<Self> {
         if uploads.is_empty() {
-            bail!(ArtifactError("Uploads is empty".to_string()))
+            bail!("Uploads is empty");
         }
 
         let root = root_dir
             .canonicalize()
-            .change_context(ArtifactError(format!(
-                "failed to canonicalize root dir '{root_dir:?}'"
-            )))?;
+            .into_diagnostic()
+            .wrap_err("failed to canonicalize root dir '{root_dir:?}'")?;
 
         let mut output = Vec::with_capacity(uploads.len());
         for upload in uploads {
             output.push(
                 normalize_to_relative_path(&root, upload.as_str())
-                    .change_context(ArtifactError(format!("failed to canonize upload {upload}")))?,
+                    .wrap_err("failed to canonize upload {upload}")?,
             );
         }
 
@@ -87,11 +81,11 @@ impl ArtifactBuilder {
     }
 
     #[tracing::instrument(skip(ctx))]
-    pub fn build(&self, ctx: Ctx<Background>) -> Result<Artifact, ArtifactError> {
+    pub fn build(&self, ctx: Ctx<Background>) -> Result<Artifact> {
         let filename = format!("{}.zip", Uuid::new_v4());
         let result_path = self.root_dir.join(filename);
 
-        let result = File::create(result_path.clone()).map_err(|e| ArtifactError(e.to_string()))?;
+        let result = File::create(result_path.clone()).into_diagnostic()?;
 
         let mut zip = ZipWriter::new(result);
         let options = SimpleFileOptions::default()
@@ -101,15 +95,13 @@ impl ArtifactBuilder {
         tracing::debug!("Zipping paths: {:?}", self.uploads);
         for path in &self.uploads {
             if ctx.is_done() {
-                return Err(Report::new(ArtifactError("Cancelled".to_string()))
-                    .attach_printable("context is done"));
+                bail!("Context is cancelled");
             }
-            self.zip_path(ctx.clone(), &mut zip, path, options)
-                .map_err(|e| ArtifactError(format!("{e:?}")))?;
+            self.zip_path(ctx.clone(), &mut zip, path, options)?;
         }
 
         tracing::debug!("Finishing zip");
-        zip.finish().map_err(|e| ArtifactError(e.to_string()))?;
+        zip.finish().into_diagnostic()?;
 
         Ok(Artifact { file: result_path })
     }
@@ -121,10 +113,9 @@ impl ArtifactBuilder {
         w: &mut ZipWriter<File>,
         path: &PathBuf,
         options: FileOptions<T>,
-    ) -> Result<(), ArtifactError> {
+    ) -> Result<()> {
         if ctx.is_done() {
-            return Err(Report::new(ArtifactError("Cancelled".to_string()))
-                .attach_printable("context is done"));
+            bail!("Context is cancelled");
         }
 
         if path.is_dir() {
@@ -132,8 +123,8 @@ impl ArtifactBuilder {
             let _guard = span.enter();
 
             tracing::info!("Reading directory entries");
-            for entry in fs::read_dir(path.clone()).map_err(|e| ArtifactError(e.to_string()))? {
-                let entry = entry.map_err(|e| ArtifactError(e.to_string()))?;
+            for entry in fs::read_dir(path.clone()).into_diagnostic()? {
+                let entry = entry.into_diagnostic()?;
 
                 let path = entry.path();
                 tracing::debug!("Entry path: {:?}", path);
@@ -154,41 +145,31 @@ impl ArtifactBuilder {
                 } else {
                     tracing::info!("Path is file, copying file");
                     w.start_file_from_path(
-                        path.strip_prefix(&self.root_dir)
-                            .change_context(ArtifactError(format!(
-                                "failed to strip prefix for path {path:?}"
-                            )))?,
+                        path.strip_prefix(&self.root_dir).into_diagnostic()?,
                         options,
                     )
-                    .map_err(|e| ArtifactError(e.to_string()))?;
+                    .into_diagnostic()?;
 
                     tracing::info!("Opening file: {path:?}");
-                    let mut f = File::open(self.root_dir.join(&path)).map_err(|e| {
-                        ArtifactError(format!("Failed to open a file from path '{path:?}': {e:?}"))
-                    })?;
+                    let mut f = File::open(self.root_dir.join(&path)).into_diagnostic()?;
 
                     tracing::info!("Copying file: {path:?}");
-                    io::copy(&mut f, w).map_err(|e| ArtifactError(e.to_string()))?;
+                    io::copy(&mut f, w).into_diagnostic()?;
                 }
             }
         } else {
             tracing::info!("Path is file, copying file");
             w.start_file_from_path(
-                path.strip_prefix(&self.root_dir)
-                    .change_context(ArtifactError(format!(
-                        "failed to strip prefix for path {path:?}"
-                    )))?,
+                path.strip_prefix(&self.root_dir).into_diagnostic()?,
                 options,
             )
-            .map_err(|e| ArtifactError(e.to_string()))?;
+            .into_diagnostic()?;
 
             tracing::info!("Opening file: {path:?}");
-            let mut f = File::open(self.root_dir.join(path)).map_err(|e| {
-                ArtifactError(format!("Failed to open a file from path '{path:?}': {e:?}"))
-            })?;
+            let mut f = File::open(self.root_dir.join(path)).into_diagnostic()?;
 
             tracing::info!("Copying file: {path:?}");
-            io::copy(&mut f, w).map_err(|e| ArtifactError(e.to_string()))?;
+            io::copy(&mut f, w).into_diagnostic()?;
         }
 
         Ok(())
@@ -199,17 +180,6 @@ impl ArtifactBuilder {
 pub struct Artifact {
     pub file: PathBuf,
 }
-
-#[derive(Debug)]
-pub struct ArtifactError(String);
-
-impl fmt::Display for ArtifactError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Artifact error: {}", self.0)
-    }
-}
-
-impl Context for ArtifactError {}
 
 #[cfg(test)]
 mod tests {
