@@ -244,11 +244,7 @@ fn poll_loop<RC>(
             Err(e) => {
                 match e.downcast::<ClientError>() {
                     Ok(e) => match e {
-                        ClientError::FatalError => {
-                            poll_tx.send(Err(e)).unwrap();
-                            return;
-                        }
-                        ClientError::RetryableError => {
+                        ClientError::ServerError | ClientError::ConnectionError(..) => {
                             tracing::error!("Failed to poll jobs: {:?}. Sleeping for 30s", e);
 
                             let mut count = 300; // 10 * 100ms * 30s
@@ -262,6 +258,10 @@ fn poll_loop<RC>(
                                 return;
                             }
                             continue;
+                        }
+                        e => {
+                            poll_tx.send(Err(e)).unwrap();
+                            return;
                         }
                     },
                     e => {

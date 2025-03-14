@@ -1,6 +1,6 @@
 use crate::error::{ClientError, OperationError};
 use ctx::{Background, Ctx};
-use miette::{Result, WrapErr};
+use miette::{miette, Result, WrapErr};
 #[cfg(feature = "mockall")]
 use mockall::mock;
 use recoil::{Interval, Recoil, State};
@@ -86,9 +86,7 @@ impl RegistrationClient for HttpRegistrationClient {
         let mut recoil = self.recoil.clone();
         let res = recoil.run(|| {
             if ctx.is_done() {
-                return State::Fail(
-                    miette::miette!("Context is cancelled").wrap_err(ClientError::FatalError),
-                );
+                return State::Fail(ClientError::CancellationError.into());
             }
             match self
                 .client
@@ -99,8 +97,13 @@ impl RegistrationClient for HttpRegistrationClient {
                 .map_err(ClientError::from)
             {
                 Ok(res) => State::Done(res),
-                Err(ClientError::RetryableError) => State::Retry(retry),
-                Err(e) => State::Fail(miette::miette!("Failed to resolve the job").wrap_err(e)),
+                Err(e @ ClientError::ConflictError) => {
+                    State::Fail(miette!("Runner with the same name already exists").wrap_err(e))
+                }
+                Err(ClientError::ServerError | ClientError::ConnectionError(..)) => {
+                    State::Retry(retry)
+                }
+                Err(e) => State::Fail(miette!("Failed to register the runner").wrap_err(e)),
             }
         });
 
