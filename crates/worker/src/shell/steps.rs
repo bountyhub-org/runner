@@ -6,14 +6,14 @@ use client::job::{
     TimelineRequestStepState,
 };
 use ctx::{Background, Ctx};
-use error_stack::{Context, Report, Result, ResultExt};
+use miette::{IntoDiagnostic, Result, WrapErr};
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::mpsc::{self, TryRecvError};
+use std::thread;
 use std::time::Duration;
-use std::{fmt, thread};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
@@ -32,7 +32,7 @@ impl StepsRunner {
     }
 
     #[tracing::instrument(skip(self, ctx, client))]
-    pub(crate) fn run<C>(&mut self, ctx: Ctx<Background>, client: &C) -> Result<(), ExecutionError>
+    pub(crate) fn run<C>(&mut self, ctx: Ctx<Background>, client: &C) -> Result<()>
     where
         C: JobClient,
     {
@@ -95,10 +95,7 @@ impl StepsRunner {
                                     },
                                 },
                             )
-                            .change_context(ExecutionError)
-                            .attach_printable(format!(
-                                "failed to post a timeline for step {index}"
-                            ))?;
+                            .wrap_err("failed to post a timeline for step {index}")?;
 
                         return Err(e);
                     }
@@ -113,8 +110,7 @@ impl StepsRunner {
                             state: TimelineRequestStepState::Running,
                         },
                     )
-                    .change_context(ExecutionError)
-                    .attach_printable(format!("Failed to post step {index} as running "))?;
+                    .wrap_err("Failed to post step {index} as running ")?;
 
                 tracing::debug!("Starting the log stream for step {step:?}");
 
@@ -144,8 +140,7 @@ impl StepsRunner {
 
                 client
                     .post_step_timeline(ctx.clone(), &TimelineRequest { index, state })
-                    .change_context(ExecutionError)
-                    .attach_printable(format!("Failed to post step's timeline for step {index}"))?;
+                    .wrap_err("Failed to post step's timeline for step {index}")?;
 
                 self.execution_ctx.update_state(state);
             }
@@ -161,18 +156,16 @@ impl StepsRunner {
     }
 
     #[tracing::instrument(skip(self))]
-    fn should_run_step(&self, step: &Step) -> Result<bool, ExecutionError> {
+    fn should_run_step(&self, step: &Step) -> Result<bool> {
         tracing::debug!("Evaluating condition for step: {step:?}");
         match step {
-            Step::Command { cond, .. } => match self.execution_ctx.eval_expr(cond) {
-                Ok(val) => match val {
-                    Value::Bool(v) => Ok(v),
-                    v => Err(Report::new(ExecutionError).attach_printable(format!(
-                        "Expected boolean expression in condition '{cond}', got {v:?}"
-                    ))),
-                },
-                Err(e) => Err(Report::new(ExecutionError)
-                    .attach_printable(format!("Condition evaluation failed: {e}"))),
+            Step::Command { cond, .. } => match self
+                .execution_ctx
+                .eval_expr(cond)
+                .wrap_err("Condition evaluation failed")?
+            {
+                Value::Bool(v) => Ok(v),
+                v => miette::bail!("Condition evaluated to value {v:?}, expected bool"),
             },
             Step::Upload { .. } => Ok(self.execution_ctx.ok()),
             _ => Ok(true),
@@ -320,7 +313,7 @@ impl CommandStep<'_> {
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());
 
-        tracing::info!("Spawning command: {cmd:?}");
+        tracing::debug!("Spawning command: {cmd:?}");
         let mut child = match cmd.spawn() {
             Ok(child) => child,
             Err(err) => {
@@ -443,30 +436,24 @@ impl CommandStep<'_> {
         &self,
         ctx: Ctx<Background>,
         execution_ctx: &ExecutionContext,
-    ) -> Result<PathBuf, ExecutionError> {
+    ) -> Result<PathBuf> {
         let code = execution_ctx
             .eval_templ(self.run)
-            .change_context(ExecutionError)
-            .attach_printable("failed to parse code")?;
+            .wrap_err("Failed to evaluate code template")?;
 
         if ctx.is_done() {
-            return Err(Report::new(ContextCancelledError).change_context(ExecutionError));
+            miette::bail!("Context is cancelled")
         }
 
         let file_path = Path::new(execution_ctx.workdir()).join(Uuid::new_v4().to_string());
         {
-            let mut f = match File::create(&file_path) {
-                Ok(f) => f,
-                Err(err) => {
-                    return Err(Report::new(ExecutionError)
-                        .attach_printable(format!("Failed to crete file {file_path:?}: {err:?}")));
-                }
-            };
+            let mut f = File::create(&file_path)
+                .into_diagnostic()
+                .wrap_err("Failed to create file '{file_path}'")?;
 
-            if let Err(err) = f.write_all(code.as_bytes()) {
-                return Err(Report::new(ExecutionError)
-                    .attach_printable(format!("Failed to write bytes into a file: {err:?}")));
-            }
+            f.write_all(code.as_bytes())
+                .into_diagnostic()
+                .wrap_err("Failed to write bytes into a file: {err:?}")?;
         }
 
         Ok(file_path)
@@ -566,39 +553,6 @@ where
         }
     }
 }
-
-#[derive(Debug)]
-pub struct StepError;
-
-impl fmt::Display for StepError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Step error")
-    }
-}
-
-impl Context for StepError {}
-
-#[derive(Debug)]
-pub struct ExecutionError;
-
-impl fmt::Display for ExecutionError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Execution error")
-    }
-}
-
-impl Context for ExecutionError {}
-
-#[derive(Debug)]
-pub struct ContextCancelledError;
-
-impl fmt::Display for ContextCancelledError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Context cancelled")
-    }
-}
-
-impl Context for ContextCancelledError {}
 
 #[cfg(test)]
 mod tests {

@@ -1,10 +1,9 @@
 use self::execution_context::ExecutionContext;
-use super::error::WorkerError;
 use super::Worker;
 use client::job::JobClient;
 use client::runner::JobAcquiredResponse;
 use ctx::{Background, Ctx};
-use error_stack::{Result, ResultExt};
+use miette::{Result, WrapErr};
 use std::{path::Path, sync::Arc};
 use steps::StepsRunner;
 
@@ -27,13 +26,12 @@ where
     C: JobClient,
 {
     #[tracing::instrument(skip(self, ctx))]
-    fn run(self, ctx: Ctx<Background>) -> Result<(), WorkerError> {
+    fn run(self, ctx: Ctx<Background>) -> Result<()> {
         tracing::info!("Resolving job {}", self.job.id);
         let job = self
             .client
             .resolve(ctx.clone())
-            .change_context(WorkerError)
-            .attach_printable("failed to resolve job")?;
+            .wrap_err("failed to resolve job")?;
         tracing::info!("Resolved job: {:?}", job);
 
         tracing::info!("Building execution context");
@@ -53,7 +51,6 @@ where
         tracing::info!("Running job: {}", job_name);
         steps
             .run(ctx.clone(), &self.client)
-            .change_context(WorkerError)
-            .attach_printable("steps.run failed")
+            .wrap_err("steps.run failed")
     }
 }

@@ -10,4 +10,4 @@ keywords = ["bountyhub", "runner", "recoil"]
 authors = ["Nikola Jokic <nikola.jokic@bountyhub.org>" ]
 
 [dependencies]
-rand = "0.8.5"
+rand = "^0.9"

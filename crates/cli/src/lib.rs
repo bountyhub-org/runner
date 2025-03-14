@@ -5,11 +5,10 @@ use client::pool::ClientPool;
 use client::registration::{HttpRegistrationClient, RegistrationClient, RegistrationRequest};
 use client::runner::{HttpRunnerClient, JobAcquiredResponse};
 use ctx::{Background, Ctx};
-use error_stack::{Context, Report, Result, ResultExt};
+use miette::{bail, IntoDiagnostic, Result, WrapErr};
 use runner::Runner;
-use std::io::Write;
+use std::io::{self, Write};
 use std::sync::{Arc, RwLock};
-use std::{fmt, io};
 use sudoservice::service::Service;
 use sudoservice::systemd::{Config as SystemdConfig, Systemd};
 use worker::shell::ShellWorker;
@@ -83,7 +82,7 @@ enum ServiceCommands {
 }
 
 impl Cli {
-    pub fn run(self, ctx: Ctx<Background>) -> Result<(), ApplicationError> {
+    pub fn run(self, ctx: Ctx<Background>) -> Result<()> {
         let pool = ClientPool::default();
         let user_agent = Arc::new(format!("runner/{} (cli)", env!("CARGO_PKG_VERSION")));
         match self.command {
@@ -101,32 +100,20 @@ impl Cli {
                         if unattended {
                             config::generate_default_name()
                         } else {
-                            prompt::runner_name()
-                                .change_context(ApplicationError)
-                                .attach_printable("failed to prompt for runner name")?
+                            prompt::runner_name().wrap_err("failed to prompt for runner name")?
                         }
                     }
                 };
 
-                config::validate_name(&name)
-                    .change_context(ApplicationError)
-                    .attach_printable("Invalid name")?;
+                config::validate_name(&name).wrap_err("Invalid name")?;
 
-                config::validate_url(&url)
-                    .change_context(ApplicationError)
-                    .attach_printable("Invalid URL")?;
+                config::validate_url(&url).wrap_err("Invalid URL")?;
 
-                config::validate_token(&token)
-                    .change_context(ApplicationError)
-                    .attach_printable("Invalid token")?;
+                config::validate_token(&token).wrap_err("Invalid token")?;
 
-                config::validate_workdir(&workdir)
-                    .change_context(ApplicationError)
-                    .attach_printable("Invalid workdir")?;
+                config::validate_workdir(&workdir).wrap_err("Invalid workdir")?;
 
-                config::validate_capacity(capacity)
-                    .change_context(ApplicationError)
-                    .attach_printable("Invalid capacity")?;
+                config::validate_capacity(capacity).wrap_err("Invalid capacity")?;
 
                 let request = RegistrationRequest {
                     name,
@@ -138,8 +125,7 @@ impl Cli {
 
                 let response = client
                     .register(ctx, &request)
-                    .change_context(ApplicationError)
-                    .attach_printable("Failed to register runner")?;
+                    .wrap_err("Failed to register runner")?;
 
                 let config = Config {
                     token: response.token,
@@ -153,35 +139,27 @@ impl Cli {
 
                 config
                     .validate()
-                    .change_context(ApplicationError)
-                    .attach_printable("Failed to validate configuration after registration")?;
+                    .wrap_err("Failed to validate configuration after registration")?;
 
-                config
-                    .write()
-                    .change_context(ApplicationError)
-                    .attach_printable("failed to write config")?;
+                config.write().wrap_err("failed to write config")?;
 
                 tracing::info!("Configuration saved to {}", config::CONFIG_FILE);
 
                 Ok(())
             }
             Commands::Service { action } => {
-                let config = Config::read()
-                    .change_context(ApplicationError)
-                    .attach_printable(
-                        "Failed to read config file. Please make sure the runner is registered",
-                    )?;
+                let config = Config::read().wrap_err(
+                    "Failed to read config file. Please make sure the runner is registered",
+                )?;
 
                 config
                     .validate()
-                    .change_context(ApplicationError)
-                    .attach_printable("Invalid configuration. Please re-register the runner.")?;
+                    .wrap_err("Invalid configuration. Please re-register the runner.")?;
 
                 let svc_name = format!("org.bountyhub.runner.{}", config.name);
 
                 if !Systemd::is_available() {
-                    return Err(Report::new(ApplicationError)
-                        .attach_printable("Systemd is not available on this system"));
+                    bail!("Systemd is not available on this system");
                 }
 
                 let worker_envs: Vec<(String, String)> = dotenv::vars().collect();
@@ -192,13 +170,13 @@ impl Cli {
                     description: Some("BountyHub Runner started as a service".to_string()),
                     username: None,
                     executable: std::env::current_exe()
-                        .change_context(ApplicationError)
-                        .attach_printable("Failed to get current executable path")?,
+                        .into_diagnostic()
+                        .wrap_err("Failed to get current executable path")?,
                     args: Some(vec!["run".to_string()]),
                     working_directory: Some(
                         std::env::current_dir()
-                            .change_context(ApplicationError)
-                            .attach_printable("Failed to get current working directory")?,
+                            .into_diagnostic()
+                            .wrap_err("Failed to get current working directory")?,
                     ),
                     environment: Some(worker_envs),
                     ch_root: None,
@@ -214,47 +192,38 @@ impl Cli {
 
                         manager
                             .install()
-                            .change_context(ApplicationError)
-                            .attach_printable("Failed to install service.")?;
+                            .into_diagnostic()
+                            .wrap_err("Failed to install service.")?;
 
                         tracing::info!("Service '{}' installed successfully", svc_name);
                     }
                     ServiceCommands::Start {} => {
                         tracing::debug!("Starting service: {}", svc_name);
-                        manager
-                            .start()
-                            .change_context(ApplicationError)
-                            .attach_printable(
+                        manager.start().into_diagnostic().wrap_err(
                             "Failed to start service. Please make sure the service is installed",
                         )?;
                         tracing::info!("Service '{}' started successfully", svc_name);
                     }
                     ServiceCommands::Stop {} => {
                         tracing::debug!("Stopping service: {}", svc_name);
-                        manager
-                            .stop()
-                            .change_context(ApplicationError)
-                            .attach_printable(
-                                "Failed to stop service. Please make sure the service is installed",
-                            )?;
+                        manager.stop().into_diagnostic().wrap_err(
+                            "Failed to stop service. Please make sure the service is installed",
+                        )?;
                         tracing::info!("Service '{}' stopped successfully", svc_name);
                     }
                     ServiceCommands::Uninstall {} => {
                         tracing::debug!("Uninstalling service: {}", svc_name);
                         manager
                             .uninstall()
-                            .change_context(ApplicationError)
-                            .attach_printable(
+                            .into_diagnostic()
+                            .wrap_err(
                                 "Failed to uninstall service. Please make sure the service is installed",
                             )?;
                         tracing::info!("Service '{}' uninstalled successfully", svc_name);
                     }
                     ServiceCommands::Restart {} => {
                         tracing::debug!("Restarting service: {}", svc_name);
-                        manager
-                            .restart()
-                            .change_context(ApplicationError)
-                            .attach_printable(
+                        manager.restart().into_diagnostic().wrap_err(
                             "Failed to restart service. Please make sure the service is installed",
                         )?;
                         tracing::info!("Service '{}' restarted successfully", svc_name);
@@ -263,8 +232,8 @@ impl Cli {
                         tracing::debug!("Checking service status: {}", svc_name);
                         let status = manager
                             .status()
-                            .change_context(ApplicationError)
-                            .attach_printable(
+                            .into_diagnostic()
+                            .wrap_err(
                             "Failed to get service status. Please make sure the service is installed",
                         )?;
                         tracing::info!("Service '{}' status: {:?}", svc_name, status);
@@ -273,16 +242,13 @@ impl Cli {
                 Ok(())
             }
             Commands::Run {} => {
-                let config = Config::read()
-                    .change_context(ApplicationError)
-                    .attach_printable(
-                        "Failed to read config file. Please make sure the runner is registered",
-                    )?;
+                let config = Config::read().wrap_err(
+                    "Failed to read config file. Please make sure the runner is registered",
+                )?;
 
                 config
                     .validate()
-                    .change_context(ApplicationError)
-                    .attach_printable("Invalid configuration. Please re-register the runner.")?;
+                    .wrap_err("Invalid configuration. Please re-register the runner.")?;
 
                 let config = Arc::new(RwLock::new(config));
 
@@ -304,8 +270,7 @@ impl Cli {
 
                 runner
                     .run(ctx.clone(), runner_client)
-                    .change_context(ApplicationError)
-                    .attach_printable("runner exited with error")?;
+                    .wrap_err("runner exited with error")?;
 
                 Ok(())
             }
@@ -316,8 +281,8 @@ impl Cli {
                 generate(shell, &mut cmd, name, &mut stdout);
                 stdout
                     .flush()
-                    .change_context(ApplicationError)
-                    .attach_printable("failed to flush stdout")?;
+                    .into_diagnostic()
+                    .wrap_err("failed to flush stdout")?;
 
                 Ok(())
             }
@@ -349,14 +314,3 @@ impl runner::WorkerBuilder for WorkerBuilder {
         }
     }
 }
-
-#[derive(Debug)]
-pub struct ApplicationError;
-
-impl fmt::Display for ApplicationError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Application error")
-    }
-}
-
-impl Context for ApplicationError {}

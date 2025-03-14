@@ -1,9 +1,8 @@
+use super::error::{ClientError, OperationError};
 use crate::pool::ClientPool;
-
-use super::error::{ClientError, FatalError, RetryableError};
 use config::Config;
 use ctx::{Background, Ctx};
-use error_stack::{Report, Result, ResultExt};
+use miette::{Result, WrapErr};
 #[cfg(feature = "mockall")]
 use mockall::mock;
 use recoil::{Interval, Recoil, State};
@@ -12,7 +11,7 @@ use std::{
     sync::{Arc, RwLock},
     time::Duration,
 };
-use ureq::{Error as UreqError, Response};
+use ureq::Response;
 use uuid::Uuid;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -36,14 +35,10 @@ struct CompleteRequest {
 }
 
 pub trait RunnerClient: Send + Sync + Clone {
-    fn hello(&self, ctx: Ctx<Background>) -> Result<(), ClientError>;
-    fn goodbye(&self, ctx: Ctx<Background>) -> Result<(), ClientError>;
-    fn request(
-        &self,
-        ctx: Ctx<Background>,
-        capacity: u32,
-    ) -> Result<Vec<JobAcquiredResponse>, ClientError>;
-    fn complete(&self, ctx: Ctx<Background>, id: Uuid) -> Result<(), ClientError>;
+    fn hello(&self, ctx: Ctx<Background>) -> Result<()>;
+    fn goodbye(&self, ctx: Ctx<Background>) -> Result<()>;
+    fn request(&self, ctx: Ctx<Background>, capacity: u32) -> Result<Vec<JobAcquiredResponse>>;
+    fn complete(&self, ctx: Ctx<Background>, id: Uuid) -> Result<()>;
 }
 
 #[cfg(feature = "mockall")]
@@ -55,10 +50,10 @@ mock! {
     }
 
     impl RunnerClient for RunnerClient {
-        fn hello(&self, ctx: Ctx<Background>) -> Result<(), ClientError>;
-        fn goodbye(&self, ctx: Ctx<Background>) -> Result<(), ClientError>;
-        fn request(&self, ctx: Ctx<Background>, capacity: u32) -> Result<Vec<JobAcquiredResponse>, ClientError>;
-        fn complete(&self, ctx: Ctx<Background>, id: Uuid) -> Result<(), ClientError>;
+        fn hello(&self, ctx: Ctx<Background>) -> Result<()>;
+        fn goodbye(&self, ctx: Ctx<Background>) -> Result<()>;
+        fn request(&self, ctx: Ctx<Background>, capacity: u32) -> Result<Vec<JobAcquiredResponse>>;
+        fn complete(&self, ctx: Ctx<Background>, id: Uuid) -> Result<()>;
     }
 }
 
@@ -92,7 +87,7 @@ impl HttpRunnerClient {
 
 impl RunnerClient for HttpRunnerClient {
     #[tracing::instrument(skip(self, ctx))]
-    fn hello(&self, ctx: Ctx<Background>) -> Result<(), ClientError> {
+    fn hello(&self, ctx: Ctx<Background>) -> Result<()> {
         let (endpoint, token) = {
             let cfg = self.config.read().unwrap();
 
@@ -107,8 +102,9 @@ impl RunnerClient for HttpRunnerClient {
         let mut recoil = self.recoil.clone();
         let res = recoil.run(|| {
             if ctx.is_done() {
-                tracing::debug!("Cancelled");
-                return State::Fail(Report::new(ClientError).attach_printable("cancelled"));
+                return State::Fail(
+                    miette::miette!("Context is cancelled").wrap_err(ClientError::FatalError),
+                );
             }
             tracing::debug!("Saying hello to the server");
             match client
@@ -116,23 +112,11 @@ impl RunnerClient for HttpRunnerClient {
                 .set("Authorization", &token)
                 .set("User-Agent", &self.user_agent)
                 .call()
+                .map_err(ClientError::from)
             {
                 Ok(res) => State::Done(res),
-                Err(UreqError::Status(401 | 403, ..)) => State::Fail(
-                    Report::new(FatalError)
-                        .attach_printable("Unauthorized")
-                        .change_context(ClientError),
-                ),
-                Err(UreqError::Status((500..), ..)) => State::Retry(retry),
-                Err(UreqError::Transport(err))
-                    if err.kind() == ureq::ErrorKind::ConnectionFailed =>
-                {
-                    State::Retry(retry)
-                }
-                Err(err) => State::Fail(
-                    Report::new(ClientError)
-                        .attach_printable(format!("Failed to say hello: {}", err)),
-                ),
+                Err(ClientError::RetryableError) => State::Retry(retry),
+                Err(e) => State::Fail(miette::miette!("Failed to resolve the job").wrap_err(e)),
             }
         });
 
@@ -141,15 +125,15 @@ impl RunnerClient for HttpRunnerClient {
                 self.update_token(&res);
                 Ok(())
             }
-            Err(recoil::recoil::Error::MaxRetriesReached) => Err(Report::new(RetryableError)
-                .attach_printable("Max retries reached")
-                .change_context(ClientError)),
+            Err(recoil::recoil::Error::MaxRetriesReached) => {
+                Err(OperationError::MaxRetriesError.into())
+            }
             Err(recoil::recoil::Error::Custom(e)) => Err(e),
         }
     }
 
     #[tracing::instrument(skip(self, ctx))]
-    fn goodbye(&self, ctx: Ctx<Background>) -> Result<(), ClientError> {
+    fn goodbye(&self, ctx: Ctx<Background>) -> Result<()> {
         let (endpoint, token) = {
             let cfg = self.config.read().unwrap();
 
@@ -163,30 +147,20 @@ impl RunnerClient for HttpRunnerClient {
         let mut recoil = self.recoil.clone();
         let res = recoil.run(|| {
             if ctx.is_done() {
-                return State::Fail(Report::new(ClientError).attach_printable("cancelled"));
+                return State::Fail(
+                    miette::miette!("Context is cancelled").wrap_err(ClientError::FatalError),
+                );
             }
             match client
                 .post(&endpoint)
                 .set("Authorization", &token)
                 .set("User-Agent", &self.user_agent)
                 .call()
+                .map_err(ClientError::from)
             {
                 Ok(res) => State::Done(res),
-                Err(UreqError::Status(401 | 403, ..)) => State::Fail(
-                    Report::new(FatalError)
-                        .attach_printable("Unauthorized")
-                        .change_context(ClientError),
-                ),
-                Err(UreqError::Status((500..), ..)) => State::Retry(retry),
-                Err(UreqError::Transport(err))
-                    if err.kind() == ureq::ErrorKind::ConnectionFailed =>
-                {
-                    State::Retry(retry)
-                }
-                Err(err) => State::Fail(
-                    Report::new(ClientError)
-                        .attach_printable(format!("Failed to say hello: {}", err)),
-                ),
+                Err(ClientError::RetryableError) => State::Retry(retry),
+                Err(e) => State::Fail(miette::miette!("Failed to resolve the job").wrap_err(e)),
             }
         });
 
@@ -195,19 +169,15 @@ impl RunnerClient for HttpRunnerClient {
                 self.update_token(&res);
                 Ok(())
             }
-            Err(recoil::recoil::Error::MaxRetriesReached) => Err(Report::new(RetryableError)
-                .attach_printable("Max retries reached")
-                .change_context(ClientError)),
+            Err(recoil::recoil::Error::MaxRetriesReached) => {
+                Err(OperationError::MaxRetriesError.into())
+            }
             Err(recoil::recoil::Error::Custom(e)) => Err(e),
         }
     }
 
     #[tracing::instrument(skip(self, ctx))]
-    fn request(
-        &self,
-        ctx: Ctx<Background>,
-        capacity: u32,
-    ) -> Result<Vec<JobAcquiredResponse>, ClientError> {
+    fn request(&self, ctx: Ctx<Background>, capacity: u32) -> Result<Vec<JobAcquiredResponse>> {
         let (endpoint, token) = {
             let cfg = self.config.read().unwrap();
             (
@@ -221,7 +191,9 @@ impl RunnerClient for HttpRunnerClient {
         let client = self.pool.long_poll_client();
         let res = recoil.run(|| {
             if ctx.is_done() {
-                return State::Fail(Report::new(ClientError).attach_printable("cancelled"));
+                return State::Fail(
+                    miette::miette!("Context is cancelled").wrap_err(ClientError::FatalError),
+                );
             }
             match client
                 .post(&endpoint)
@@ -229,44 +201,32 @@ impl RunnerClient for HttpRunnerClient {
                 .set("User-Agent", &self.user_agent)
                 .set("Content-Type", "application/json")
                 .send_json(ureq::json!(PollRequest { capacity }))
+                .map_err(ClientError::from)
             {
                 Ok(res) => State::Done(res),
-                Err(UreqError::Status(401 | 403, ..)) => State::Fail(
-                    Report::new(FatalError)
-                        .attach_printable("Unauthorized")
-                        .change_context(ClientError),
-                ),
-                Err(UreqError::Status((500..), ..)) => State::Retry(retry),
-                Err(UreqError::Transport(err))
-                    if err.kind() == ureq::ErrorKind::ConnectionFailed =>
-                {
-                    State::Retry(retry)
-                }
-                Err(err) => State::Fail(
-                    Report::new(ClientError)
-                        .attach_printable(format!("Failed to poll jobs: {}", err)),
-                ),
+                Err(ClientError::RetryableError) => State::Retry(retry),
+                Err(e) => State::Fail(miette::miette!("Failed to resolve the job").wrap_err(e)),
             }
         });
 
         match res {
             Ok(res) => {
                 self.update_token(&res);
-                let res: Vec<JobAcquiredResponse> = res
-                    .into_json()
-                    .change_context(ClientError)
-                    .attach_printable("failed to read list of poll responses")?;
+                let res: Vec<JobAcquiredResponse> =
+                    res.into_json()
+                        .map_err(OperationError::from)
+                        .wrap_err("Failed to deserialize job resolved response")?;
                 Ok(res)
             }
-            Err(recoil::recoil::Error::MaxRetriesReached) => Err(Report::new(RetryableError)
-                .attach_printable("Max retries reached")
-                .change_context(ClientError)),
+            Err(recoil::recoil::Error::MaxRetriesReached) => {
+                Err(OperationError::MaxRetriesError.into())
+            }
             Err(recoil::recoil::Error::Custom(e)) => Err(e),
         }
     }
 
     #[tracing::instrument(skip(self, ctx))]
-    fn complete(&self, ctx: Ctx<Background>, job_id: Uuid) -> Result<(), ClientError> {
+    fn complete(&self, ctx: Ctx<Background>, job_id: Uuid) -> Result<()> {
         let (endpoint, token) = {
             let cfg = self.config.read().unwrap();
             (
@@ -280,7 +240,9 @@ impl RunnerClient for HttpRunnerClient {
         let client = self.pool.default_client();
         let res = recoil.run(|| {
             if ctx.is_done() {
-                return State::Fail(Report::new(ClientError).attach_printable("cancelled"));
+                return State::Fail(
+                    miette::miette!("Context is cancelled").wrap_err(ClientError::FatalError),
+                );
             }
 
             match client
@@ -289,27 +251,11 @@ impl RunnerClient for HttpRunnerClient {
                 .set("User-Agent", &self.user_agent)
                 .set("Content-Type", "application/json")
                 .send_json(ureq::json!(CompleteRequest { job_id }))
+                .map_err(ClientError::from)
             {
                 Ok(res) => State::Done(res),
-                Err(UreqError::Status(401 | 403, ..)) => State::Fail(
-                    Report::new(FatalError)
-                        .attach_printable("Unauthorized")
-                        .change_context(ClientError),
-                ),
-                Err(UreqError::Status((500..), ..)) => {
-                    tracing::error!("Server error. Retrying...");
-                    State::Retry(retry)
-                }
-                Err(UreqError::Transport(err))
-                    if err.kind() == ureq::ErrorKind::ConnectionFailed =>
-                {
-                    tracing::error!("Connection failed: {}. Retrying...", err);
-                    State::Retry(retry)
-                }
-                Err(err) => State::Fail(
-                    Report::new(ClientError)
-                        .attach_printable(format!("Failed to poll jobs: {}", err)),
-                ),
+                Err(ClientError::RetryableError) => State::Retry(retry),
+                Err(e) => State::Fail(miette::miette!("Failed to resolve the job").wrap_err(e)),
             }
         });
 
@@ -318,9 +264,9 @@ impl RunnerClient for HttpRunnerClient {
                 self.update_token(&res);
                 Ok(())
             }
-            Err(recoil::recoil::Error::MaxRetriesReached) => Err(Report::new(RetryableError)
-                .attach_printable("Max retries reached")
-                .change_context(ClientError)),
+            Err(recoil::recoil::Error::MaxRetriesReached) => {
+                Err(OperationError::MaxRetriesError.into())
+            }
             Err(recoil::recoil::Error::Custom(e)) => Err(e),
         }
     }

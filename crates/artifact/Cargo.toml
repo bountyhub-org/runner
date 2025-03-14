@@ -13,5 +13,5 @@ resolver = "2"
 uuid = { version = "^1", features = ["v4"] }
 zip = "^2"
 tracing = "^0.1"
+miette = { version = "^7" }
 ctx = { path = "../ctx" }
-error-stack = "^0.5"

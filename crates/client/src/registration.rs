@@ -1,12 +1,11 @@
-use crate::error::{ClientError, FatalError, RetryableError};
+use crate::error::{ClientError, OperationError};
 use ctx::{Background, Ctx};
-use error_stack::{Report, Result, ResultExt};
+use miette::{Result, WrapErr};
 #[cfg(feature = "mockall")]
 use mockall::mock;
 use recoil::{Interval, Recoil, State};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
-use ureq::Error as UreqError;
 
 #[derive(Serialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -29,7 +28,7 @@ pub trait RegistrationClient: Send + Sync + Clone {
         &self,
         ctx: Ctx<Background>,
         request: &RegistrationRequest,
-    ) -> Result<RegistrationResponse, ClientError>;
+    ) -> Result<RegistrationResponse>;
 }
 
 #[cfg(feature = "mockall")]
@@ -45,7 +44,7 @@ mock! {
             &self,
             ctx: Ctx<Background>,
             request: &RegistrationRequest,
-        ) -> Result<RegistrationResponse, ClientError>;
+        ) -> Result<RegistrationResponse>;
     }
 }
 
@@ -81,13 +80,15 @@ impl RegistrationClient for HttpRegistrationClient {
         &self,
         ctx: Ctx<Background>,
         request: &RegistrationRequest,
-    ) -> Result<RegistrationResponse, ClientError> {
+    ) -> Result<RegistrationResponse> {
         let endpoint = format!("{}/api/v0/runner-registrations/register", &self.url);
         let retry = || ctx.is_done();
         let mut recoil = self.recoil.clone();
         let res = recoil.run(|| {
             if ctx.is_done() {
-                return State::Fail(Report::new(ClientError).attach_printable("cancelled"));
+                return State::Fail(
+                    miette::miette!("Context is cancelled").wrap_err(ClientError::FatalError),
+                );
             }
             match self
                 .client
@@ -95,28 +96,11 @@ impl RegistrationClient for HttpRegistrationClient {
                 .set("Content-Type", "application/json")
                 .set("User-Agent", &self.user_agent)
                 .send_json(ureq::json!(request))
+                .map_err(ClientError::from)
             {
                 Ok(res) => State::Done(res),
-                Err(UreqError::Status(409, _)) => State::Fail(
-                    Report::new(FatalError)
-                        .attach_printable("Conflict: runner already exists with that name")
-                        .change_context(ClientError),
-                ),
-                Err(UreqError::Status(status, response)) => State::Fail(
-                    Report::new(ClientError)
-                        .attach_printable(format!("Response code {}: {:?}", status, response)),
-                ),
-                Err(UreqError::Transport(err))
-                    if err.kind() == ureq::ErrorKind::ConnectionFailed =>
-                {
-                    tracing::debug!("Failed to connect to hub: {}", err);
-                    State::Retry(retry)
-                }
-
-                Err(UreqError::Transport(err)) => State::Fail(
-                    Report::new(ClientError)
-                        .attach_printable(format!("Failed to connect to hub: {}", err)),
-                ),
+                Err(ClientError::RetryableError) => State::Retry(retry),
+                Err(e) => State::Fail(miette::miette!("Failed to resolve the job").wrap_err(e)),
             }
         });
 
@@ -124,17 +108,17 @@ impl RegistrationClient for HttpRegistrationClient {
             Ok(res) => {
                 let reg: RegistrationResponse = res
                     .into_json()
-                    .attach_printable("failed to parse json response")
-                    .change_context(ClientError)?;
+                    .map_err(OperationError::from)
+                    .wrap_err("Failed to deserialize job resolved response")?;
 
                 tracing::debug!("Registered with hub: {:?}", reg);
 
                 Ok(reg)
             }
-            Err(recoil::Error::MaxRetriesReached) => Err(Report::new(RetryableError)
-                .attach_printable("Max retries reached")
-                .change_context(ClientError)),
-            Err(recoil::Error::Custom(e)) => Err(e),
+            Err(recoil::recoil::Error::MaxRetriesReached) => {
+                Err(OperationError::MaxRetriesError.into())
+            }
+            Err(recoil::recoil::Error::Custom(e)) => Err(e),
         }
     }
 }

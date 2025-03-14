@@ -1,16 +1,16 @@
-use client::error::{ClientError, FatalError};
+use client::error::ClientError;
 use client::runner::{JobAcquiredResponse, RunnerClient};
 use config::Config;
 use ctx::{Background, Ctx};
-use error_stack::{Context, Report, Result, ResultExt};
+use miette::{miette, IntoDiagnostic, Result};
 #[cfg(test)]
 use mockall::automock;
 use std::collections::BTreeMap;
+use std::fs;
 use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::sync::{Arc, RwLock};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
-use std::{fmt, fs};
 use uuid::Uuid;
 use worker::Worker;
 
@@ -41,11 +41,8 @@ where
     }
 
     #[tracing::instrument(skip(self))]
-    fn hello(&mut self, ctx: Ctx<Background>) -> Result<(), RunnerError> {
-        self.runner_client
-            .hello(ctx.to_background())
-            .change_context(RunnerError)
-            .attach_printable("Failed to send hello message to invoker service")
+    fn hello(&mut self, ctx: Ctx<Background>) -> Result<()> {
+        self.runner_client.hello(ctx.to_background())
     }
 }
 
@@ -78,21 +75,16 @@ where
     }
 
     #[tracing::instrument(skip(self, ctx, client))]
-    pub fn run<C>(&self, ctx: Ctx<Background>, client: C) -> Result<(), RunnerError>
+    pub fn run<C>(&self, ctx: Ctx<Background>, client: C) -> Result<()>
     where
         C: RunnerClient + 'static,
     {
         tracing::info!("Initializing working directory");
-        fs::create_dir_all(&self.config.read().unwrap().workdir)
-            .change_context(RunnerError)
-            .attach_printable("failed to create workdir")?;
+        fs::create_dir_all(&self.config.read().unwrap().workdir).into_diagnostic()?;
 
         tracing::info!("Contacting invoker service");
         let mut greeting = RunnerGreeting::new(client.clone());
-        greeting
-            .hello(ctx.clone())
-            .change_context(RunnerError)
-            .attach_printable("Failed to send hello message to invoker service")?;
+        greeting.hello(ctx.clone())?;
 
         tracing::info!("Listening for jobs");
 
@@ -170,7 +162,7 @@ where
                 Ok(Ok(jobs)) => jobs,
                 Ok(Err(err)) => {
                     tracing::error!("Failed to poll jobs: {:?}", err);
-                    break Err(err.change_context(RunnerError));
+                    break Err(err.into());
                 }
                 Err(mpsc::TryRecvError::Empty) => {
                     thread::sleep(Duration::from_millis(100));
@@ -178,7 +170,7 @@ where
                 }
                 Err(mpsc::TryRecvError::Disconnected) => {
                     tracing::error!("Poll channel is disconnected");
-                    break Err(Report::new(RunnerError).attach_printable("channel disconnected"));
+                    break Err(miette!("channel disconnected"));
                 }
             };
 
@@ -250,22 +242,33 @@ fn poll_loop<RC>(
                 poll_tx.send(Ok(jobs)).unwrap();
             }
             Err(e) => {
-                if e.contains::<FatalError>() {
-                    poll_tx.send(Err(e)).unwrap();
-                    return;
-                }
-                tracing::error!("Failed to poll jobs: {:?}. Sleeping for 30s", e);
-                let mut count = 300; // 10 * 100ms * 30s
-                while !ctx.is_done() && count > 0 {
-                    thread::sleep(Duration::from_millis(100));
-                    count -= 1;
-                }
+                match e.downcast::<ClientError>() {
+                    Ok(e) => match e {
+                        ClientError::FatalError => {
+                            poll_tx.send(Err(e)).unwrap();
+                            return;
+                        }
+                        ClientError::RetryableError => {
+                            tracing::error!("Failed to poll jobs: {:?}. Sleeping for 30s", e);
 
-                if ctx.is_done() {
-                    tracing::info!("Polling context is cancelled");
-                    return;
+                            let mut count = 300; // 10 * 100ms * 30s
+                            while !ctx.is_done() && count > 0 {
+                                thread::sleep(Duration::from_millis(100));
+                                count -= 1;
+                            }
+
+                            if ctx.is_done() {
+                                tracing::info!("Polling context is cancelled");
+                                return;
+                            }
+                            continue;
+                        }
+                    },
+                    e => {
+                        tracing::error!("Received an error {e:?}. Stopping");
+                        return;
+                    }
                 }
-                continue;
             }
         }
     }
@@ -276,23 +279,12 @@ pub trait WorkerBuilder {
     fn build(&self, job: JobAcquiredResponse) -> Self::Worker;
 }
 
-#[derive(Debug)]
-pub struct RunnerError;
-
-impl fmt::Display for RunnerError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "RunnerError")
-    }
-}
-
-impl Context for RunnerError {}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use client::error::{ClientError, FatalError};
+    use client::error::ClientError;
     use client::runner::MockRunnerClient;
-    use error_stack::Report;
+    use miette::bail;
 
     #[test]
     fn test_poll_loop() {
@@ -300,7 +292,7 @@ mod tests {
         client
             .expect_request()
             .times(1)
-            .returning(|_, _| Err(Report::new(FatalError).change_context(ClientError)));
+            .returning(|_, _| bail!("error"));
 
         let (poll_tx, _poll_rx) =
             mpsc::sync_channel::<Result<Vec<JobAcquiredResponse>, ClientError>>(1);

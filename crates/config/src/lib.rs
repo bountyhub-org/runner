@@ -1,7 +1,8 @@
-use error_stack::{Context, Report, Result, ResultExt};
+use miette::{miette, Diagnostic, IntoDiagnostic, LabeledSpan, Result, WrapErr};
 use serde::{Deserialize, Serialize};
 use std::io::{Read, Write};
-use std::{fmt, fs};
+use std::{fs, io};
+use thiserror::Error;
 use url::Url;
 use uuid::Uuid;
 
@@ -21,116 +22,109 @@ pub struct Config {
 
 impl Config {
     #[tracing::instrument]
-    pub fn validate(&self) -> Result<(), ValidationError> {
-        validate_token(&self.token).attach_printable("Token validation error")?;
-        validate_url(&self.hub_url).attach_printable("URL validation error")?;
-        validate_url(&self.invoker_url).attach_printable("URL validation error")?;
-        validate_url(&self.fluxy_url).attach_printable("URL validation error")?;
-        validate_name(&self.name).attach_printable("Name validation error")?;
-        validate_workdir(&self.workdir).attach_printable("Workdir validation error")?;
-        validate_capacity(self.capacity).attach_printable("Capacity validation error")?;
+    pub fn validate(&self) -> Result<()> {
+        validate_token(&self.token).wrap_err("Token validation error")?;
+        validate_url(&self.hub_url).wrap_err("URL validation error")?;
+        validate_url(&self.invoker_url).wrap_err("URL validation error")?;
+        validate_url(&self.fluxy_url).wrap_err("URL validation error")?;
+        validate_name(&self.name).wrap_err("Name validation error")?;
+        validate_workdir(&self.workdir).wrap_err("Workdir validation error")?;
+        validate_capacity(self.capacity).wrap_err("Capacity validation error")?;
         Ok(())
     }
 
     #[tracing::instrument]
-    pub fn write(&self) -> Result<(), ConfigurationError> {
+    pub fn write(&self) -> Result<()> {
         let mut file = fs::OpenOptions::new()
             .write(true)
             .create(true)
             .truncate(true)
             .open(CONFIG_FILE)
-            .attach_printable("failed to open config file")
-            .change_context(ConfigurationError)?;
+            .map_err(Error::from)?;
 
-        let content = serde_json::to_string(&self)
-            .attach_printable("serde json error")
-            .change_context(ConfigurationError)?;
+        let content = serde_json::to_string(&self).map_err(Error::from)?;
 
-        file.write_all(content.as_bytes())
-            .attach_printable("failed to write config")
-            .change_context(ConfigurationError)?;
+        file.write_all(content.as_bytes()).map_err(Error::from)?;
 
         Ok(())
     }
 
     #[tracing::instrument]
-    pub fn read() -> Result<Config, ConfigurationError> {
+    pub fn read() -> Result<Config> {
         let mut file = fs::OpenOptions::new()
             .read(true)
             .open(CONFIG_FILE)
-            .attach_printable("failed to open config file")
-            .change_context(ConfigurationError)?;
+            .map_err(Error::from)?;
 
         let content = &mut String::new();
-        file.read_to_string(content)
-            .attach_printable("read content error")
-            .change_context(ConfigurationError)?;
+        file.read_to_string(content).map_err(Error::from)?;
 
-        let config: Config = serde_json::from_slice(content.as_bytes())
-            .attach_printable("reading content failed from json")
-            .change_context(ConfigurationError)?;
+        let config: Config = serde_json::from_slice(content.as_bytes()).map_err(Error::from)?;
 
-        config
-            .validate()
-            .change_context(ConfigurationError)
-            .attach_printable("Invalid configuration")?;
+        config.validate()?;
 
         fs::create_dir_all(&config.workdir)
-            .attach_printable("failed to create workdir")
-            .change_context(ConfigurationError)?;
+            .map_err(Error::from)
+            .wrap_err("Failed to create workdir")?;
 
         Ok(config)
     }
 }
 
 #[tracing::instrument(skip(token))]
-pub fn validate_token(token: &str) -> Result<(), ValidationError> {
+pub fn validate_token(token: &str) -> Result<()> {
     if token.len() < 10 {
-        return Err(Report::new(ValidationError).attach_printable("Token is too short"));
+        return Err(miette!("Token is too short").wrap_err(Error::ValidationError));
     }
     Ok(())
 }
 
 #[tracing::instrument]
-pub fn validate_url(url: &str) -> Result<(), ValidationError> {
+pub fn validate_url(url: &str) -> Result<()> {
     let url = Url::parse(url)
-        .change_context(ValidationError)
-        .attach_printable("failed to parse url")?;
+        .into_diagnostic()
+        .wrap_err(Error::ValidationError)
+        .wrap_err("Failed to parse url")?;
 
     if url.scheme() != "http" && url.scheme() != "https" {
-        return Err(Report::new(ValidationError)
-            .attach_printable("Invalid url scheme: must be http or https"));
+        return Err(
+            miette!("Invalid url scheme: must be http or https").wrap_err(Error::ValidationError)
+        );
     }
     if !url.username().is_empty() {
         return Err(
-            Report::new(ValidationError).attach_printable("Invalid url: username is not allowed")
+            miette!("Invalid url: username is not allowed").wrap_err(Error::ValidationError)
         );
     }
     if !url.has_host() {
-        return Err(Report::new(ValidationError).attach_printable("Invalid url: host is required"));
+        return Err(miette!("Invalid url: host is required").wrap_err(Error::ValidationError));
     }
 
     Ok(())
 }
 
 #[tracing::instrument]
-pub fn validate_name(name: &str) -> Result<(), ValidationError> {
+pub fn validate_name(name: &str) -> Result<()> {
     const RUNNER_NAME_CONSTRAINT: &str =
     "name must contain alphanumeric characters or dashes and be between 3 and 50 characters long";
 
     if !(3..=50).contains(&name.len()) {
-        return Err(Report::new(ValidationError).attach_printable(format!(
-            "Name length is invalid: {}",
-            RUNNER_NAME_CONSTRAINT
-        )));
+        return Err(miette!("Name length is invalid: {RUNNER_NAME_CONSTRAINT}")
+            .wrap_err(Error::ValidationError));
     }
 
-    for c in name.chars() {
+    for (i, c) in name.chars().enumerate() {
         if !c.is_ascii_alphanumeric() && c != '-' {
-            return Err(Report::new(ValidationError).attach_printable(format!(
-                "Character in name is invalid: {}",
-                RUNNER_NAME_CONSTRAINT
-            )));
+            return Err(miette! {
+                labels = vec![LabeledSpan::at(
+                    i..i+1,
+                    "Invalid character"
+                )],
+                help = format!("Runner name must be alphanumeric or '-'"),
+                "Invalid character as a name"
+            }
+            .with_source_code(name.to_string())
+            .wrap_err(Error::ValidationError));
         }
     }
 
@@ -138,21 +132,32 @@ pub fn validate_name(name: &str) -> Result<(), ValidationError> {
 }
 
 #[tracing::instrument]
-pub fn validate_workdir(workdir: &str) -> Result<(), ValidationError> {
+pub fn validate_workdir(workdir: &str) -> Result<()> {
     if workdir.is_empty() {
-        return Err(Report::new(ValidationError).attach_printable("Workdir is empty"));
+        return Err(miette!("Workdir is empty").wrap_err(Error::ValidationError));
     }
     Ok(())
 }
 
 #[tracing::instrument]
-pub fn validate_capacity(capacity: u32) -> Result<(), ValidationError> {
+pub fn validate_capacity(capacity: u32) -> Result<()> {
     if !(1..=100).contains(&capacity) {
-        return Err(
-            Report::new(ValidationError).attach_printable("Capacity must be between 1 and 100")
-        );
+        return Err(miette!("Capacity must be between 1 and 100").wrap_err(Error::ValidationError));
     }
     Ok(())
+}
+
+#[derive(Diagnostic, Debug, Error)]
+#[diagnostic(code(client::client_error))]
+pub enum Error {
+    #[error("validation error")]
+    ValidationError,
+
+    #[error(transparent)]
+    IoError(#[from] io::Error),
+
+    #[error(transparent)]
+    SerdeError(#[from] serde_json::Error),
 }
 
 #[tracing::instrument]
@@ -168,39 +173,6 @@ pub fn generate_default_name() -> String {
         },
     )
 }
-
-#[derive(Debug)]
-pub struct ConfigurationError;
-
-impl fmt::Display for ConfigurationError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Config error")
-    }
-}
-
-impl Context for ConfigurationError {}
-
-#[derive(Debug)]
-pub struct ValidationError;
-
-impl fmt::Display for ValidationError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Validation error")
-    }
-}
-
-impl Context for ValidationError {}
-
-#[derive(Debug)]
-pub struct RunError;
-
-impl fmt::Display for RunError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Run error")
-    }
-}
-
-impl Context for RunError {}
 
 #[test]
 fn test_runner_name_validation() {

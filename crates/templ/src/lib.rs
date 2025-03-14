@@ -1,9 +1,9 @@
+use miette::{Error, LabeledSpan};
 use serde::{Deserialize, Serialize};
-use std::error::Error;
-use std::{fmt, str::FromStr};
+use std::str::FromStr;
 
-const OPEN_TMPL: &str = "${{";
-const CLOSE_TMPL: &str = "}}";
+const OPEN_TEMPL: &str = "${{";
+const CLOSE_TEMPL: &str = "}}";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Template {
@@ -18,32 +18,34 @@ pub enum Token {
 }
 
 impl FromStr for Template {
-    type Err = ParseError;
+    type Err = Error;
 
     fn from_str(input: &str) -> Result<Self, Self::Err> {
         let mut tmpl = Template { tokens: Vec::new() };
 
         let mut i = 0;
         loop {
-            match input[i..].find(OPEN_TMPL) {
+            match input[i..].find(OPEN_TEMPL) {
                 Some(idx) => {
                     if idx > 0 {
                         tmpl.tokens.push(Token::Lit(input[i..i + idx].to_string()));
                     }
                     i += idx + 3;
-                    match input[i..].find(CLOSE_TMPL) {
+                    match input[i..].find(CLOSE_TEMPL) {
                         Some(idx) => {
                             let exp = input[i..i + idx].trim();
                             tmpl.tokens.push(Token::Expr(exp.to_string()));
                             i += idx + 2;
                         }
                         None => {
-                            return Err(ParseError(format!(
-                                "unmatched '{}' at {} in {}",
-                                OPEN_TMPL,
-                                i - 3,
-                                input
-                            )));
+                            return Err(miette::miette! {
+                                labels = vec![LabeledSpan::at(
+                                    idx..i,
+                                    "Open delimiter"
+                                )],
+                                help = format!("Template must be closed with {CLOSE_TEMPL} delimiter"),
+                                "Missing closing template delimiter"
+                            }.with_source_code(input.to_string()));
                         }
                     }
                 }
@@ -59,17 +61,6 @@ impl FromStr for Template {
         Ok(tmpl)
     }
 }
-
-#[derive(Debug, Clone)]
-pub struct ParseError(pub String);
-
-impl fmt::Display for ParseError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "parse error: {}", self.0)
-    }
-}
-
-impl Error for ParseError {}
 
 #[cfg(test)]
 mod tests {
@@ -93,10 +84,9 @@ mod tests {
     #[test]
     fn test_missing_closing() {
         let err = Template::from_str("hello ${{name!").unwrap_err();
-        assert_eq!(
-            err.to_string(),
-            "parse error: unmatched '${{' at 6 in hello ${{name!"
-        );
+        assert!(err
+            .to_string()
+            .contains("Missing closing template delimiter"));
     }
 
     #[test]

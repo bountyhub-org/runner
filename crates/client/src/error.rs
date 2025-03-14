@@ -1,35 +1,39 @@
-use error_stack::Context;
-use std::fmt;
+use miette::Diagnostic;
+use std::io;
+use thiserror::Error;
+use ureq::Error as UreqError;
 
-#[derive(Debug)]
-pub struct RetryableError;
+#[derive(Diagnostic, Debug, Error)]
+#[diagnostic(code(client::client_error))]
+pub enum ClientError {
+    #[error("Retryable error")]
+    RetryableError,
 
-impl fmt::Display for RetryableError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "RetryableError")
+    // TODO: handle 409
+    #[error("Fatal error")]
+    FatalError,
+}
+
+impl From<UreqError> for ClientError {
+    fn from(value: UreqError) -> Self {
+        match value {
+            UreqError::Status(500.., ..) => ClientError::RetryableError,
+            UreqError::Status(..) => ClientError::FatalError,
+            UreqError::Transport(err) => match err.kind() {
+                ureq::ErrorKind::ProxyConnect | ureq::ErrorKind::ConnectionFailed => {
+                    ClientError::RetryableError
+                }
+                _e => ClientError::FatalError,
+            },
+        }
     }
 }
 
-impl Context for RetryableError {}
-
-#[derive(Debug)]
-pub struct FatalError;
-
-impl fmt::Display for FatalError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "FatalError")
-    }
+#[derive(Diagnostic, Debug, Error)]
+#[diagnostic(code(client::operation_error))]
+pub enum OperationError {
+    #[error("io error")]
+    IoError(#[from] io::Error),
+    #[error("max retries reached")]
+    MaxRetriesError,
 }
-
-impl Context for FatalError {}
-
-#[derive(Debug)]
-pub struct ClientError;
-
-impl fmt::Display for ClientError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "ClientError")
-    }
-}
-
-impl Context for ClientError {}
