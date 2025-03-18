@@ -1,7 +1,7 @@
 use miette::{IntoDiagnostic, Result, WrapErr};
-use std::io::{self, BufRead, Write};
+use tokio::io::{self, AsyncBufReadExt, AsyncWriteExt};
 
-pub(crate) fn runner_name() -> Result<String> {
+pub(crate) async fn runner_name() -> Result<String> {
     let mut stdout = io::stdout();
     let stdin = io::stdin();
 

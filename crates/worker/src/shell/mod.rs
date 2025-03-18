@@ -17,7 +17,6 @@ where
 {
     pub root_workdir: String,
     pub envs: Arc<Vec<(String, String)>>,
-    pub client: C,
     pub job: JobAcquiredResponse,
 }
 

@@ -21,65 +21,6 @@ use std::{
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-#[derive(Deserialize, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct JobResolvedResponse {
-    pub steps: Vec<Step>,
-    pub cfg: jobengine::Config,
-}
-
-#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "camelCase")]
-pub enum Step {
-    Setup,
-    Teardown,
-    Upload {
-        uploads: Vec<String>,
-    },
-    Command {
-        cond: String,
-        run: String,
-        shell: String,
-        allow_failed: bool,
-    },
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct JobExecutionContext {
-    pub scans: BTreeMap<String, Vec<JobMeta>>,
-    pub vars: BTreeMap<String, String>,
-    pub project: ProjectMeta,
-    pub workflow: WorkflowMeta,
-    pub revision: WorkflowRevisionMeta,
-}
-
-#[derive(Serialize, Debug, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct JobContext {
-    pub id: Uuid,
-    pub state: String,
-    pub nonce: Option<String>,
-}
-
-#[derive(Serialize, Debug, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct ProjectContext {
-    pub id: Uuid,
-}
-
-#[derive(Serialize, Debug, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct WorkflowContext {
-    pub id: Uuid,
-}
-
-#[derive(Serialize, Debug, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct RevisionContext {
-    pub id: Uuid,
-}
-
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TimelineRequest {

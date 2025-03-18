@@ -1,6 +1,6 @@
 use client::invoker::Client as InvokerClient;
 use client::runner::{JobAcquiredResponse, RunnerClient};
-use config::Config;
+use config::ConfigManager;
 use ctx::{Background, Ctx};
 use miette::{miette, IntoDiagnostic, Result};
 #[cfg(test)]
@@ -20,7 +20,7 @@ where
     WB: WorkerBuilder<Worker = W>,
     W: Worker,
 {
-    config: Arc<RwLock<Config>>,
+    config: ConfigManager,
     worker_builder: WB,
 }
 
@@ -30,15 +30,15 @@ where
     WB: WorkerBuilder<Worker = W> + 'static,
     W: Worker + 'static,
 {
-    pub fn new(config: Arc<RwLock<Config>>, worker_builder: WB) -> Self {
+    pub fn new(config: ConfigManager, worker_builder: WB) -> Self {
         Self {
             config,
             worker_builder,
         }
     }
 
-    #[tracing::instrument(skip(self, ctx, client))]
-    pub async fn run(&self, ctx: Ctx<Background>, client: InvokerClient) -> Result<()> {
+    #[tracing::instrument(skip(self, client))]
+    pub async fn run(&self, client: InvokerClient) -> Result<()> {
         tracing::info!("Initializing working directory");
         fs::create_dir_all(&self.config.read().unwrap().workdir)
             .await

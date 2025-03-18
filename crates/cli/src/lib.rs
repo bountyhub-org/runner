@@ -236,30 +236,29 @@ impl Cli {
             }
             Commands::Run {} => {
                 let config_manager = ConfigManager::new();
-                let config = config_manager.get().await?;
+                let config = config_manager
+                    .get()
+                    .await
+                    .wrap_err("Failed to get the runner configuration")?;
 
                 let invoker_client = InvokerClient::new(InvokerConfig {
                     user_agent: user_agent.clone(),
-                    url: config.invoker_url.clone(),
+                    url: config.invoker_url,
                 });
-
-                let config = Arc::new(RwLock::new(config));
 
                 let worker_envs: Arc<Vec<(String, String)>> = Arc::new(dotenv::vars().collect());
 
-                // let worker_builder = WorkerBuilder {
-                //     config: Arc::clone(&config),
-                //     pool: pool.clone(),
-                //     user_agent: Arc::clone(&user_agent),
-                //     envs: Arc::clone(&worker_envs),
-                // };
+                let worker_builder = WorkerBuilder {
+                    root_workdir: config.workdir,
+                    envs: Arc::clone(&worker_envs),
+                };
 
                 let runner = Runner::new(Arc::clone(&config), worker_builder);
 
                 runner
                     .run(ctx.clone(), runner_client)
                     .await
-                    .wrap_err("runner exited with error")?;
+                    .wrap_err("Runner exited with error")?;
 
                 Ok(())
             }
@@ -280,9 +279,7 @@ impl Cli {
 }
 
 struct WorkerBuilder {
-    config: Arc<RwLock<Config>>,
-    pool: ClientPool,
-    user_agent: Arc<String>,
+    root_workdir: String,
     envs: Arc<Vec<(String, String)>>,
 }
 
@@ -291,14 +288,8 @@ impl runner::WorkerBuilder for WorkerBuilder {
 
     fn build(&self, job: JobAcquiredResponse) -> Self::Worker {
         ShellWorker {
-            root_workdir: self.config.read().unwrap().workdir.clone(),
+            root_workdir: self.root_workdir,
             envs: Arc::clone(&self.envs),
-            client: HttpJobClient::new(
-                Arc::clone(&self.config),
-                self.pool.clone(),
-                &job.token,
-                Arc::clone(&self.user_agent),
-            ),
             job,
         }
     }
