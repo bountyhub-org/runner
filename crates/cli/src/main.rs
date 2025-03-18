@@ -4,7 +4,8 @@ use std::process::exit;
 use tracing::Level;
 use tracing_subscriber::FmtSubscriber;
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let log_level = match std::env::var("RUNNER_LOG_LEVEL")
         .unwrap_or_else(|_| "INFO".to_string())
         .to_uppercase()
@@ -41,7 +42,7 @@ fn main() {
     })
     .expect("Error setting Ctrl-C handler");
 
-    if let Err(err) = app.run(run_ctx) {
+    if let Err(err) = app.run(run_ctx).await {
         tracing::error!("Error: {:?}", err);
         exit(1);
     }

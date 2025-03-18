@@ -5,7 +5,6 @@ members = [
     "crates/client",
     "crates/config",
     "crates/ctx",
-    "crates/recoil",
     "crates/runner",
     "crates/worker",
     "crates/templ",

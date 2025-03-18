@@ -14,7 +14,14 @@ miette = { version = "^7" }
 thiserror = "^2"
 serde = { version = "^1", features = ["derive"] }
 tracing = "^0.1"
-ureq = { version = "^2", features = ["json", "native-certs"] }
+reqwest = { version = "^0.12" , default-features = false }
+reqwest-middleware = { version = "0.4", features = ["json"] }
+reqwest-retry = "0.7"
+reqwest-tracing = "0.5"
+tokio-tungstenite = "0.26.0"
+tokio = { version = "1", features = ["sync"] }
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+futures = "0.3"
 time = { version = "^0.3", features = ["serde"] }
 mockall = { version = "0.13.0", optional = true }
 serde_repr = "^0.1"
@@ -23,7 +30,6 @@ uuid = { version = "^1", features = ["serde"] }
 cellang = { version = "^0.4" }
 jobengine = { path = "../jobengine" }
 ctx = { path = "../ctx" }
-recoil = { path = "../recoil" }
 config = { path = "../config" }
 
 [dev-dependencies]

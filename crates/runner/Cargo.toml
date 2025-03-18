@@ -12,6 +12,7 @@ keywords = ["bountyhub", "runner", "job"]
 [dependencies]
 miette = { version = "^7" }
 tracing = "^0.1"
+tokio = { version = "1", features = ["fs"]}
 uuid = "^1"
 client = { path = "../client" }
 config = { path = "../config" }

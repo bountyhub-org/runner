@@ -1,9 +1,6 @@
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::{generate, Shell};
-use client::job::HttpJobClient;
-use client::pool::ClientPool;
-use client::registration::{HttpRegistrationClient, RegistrationClient, RegistrationRequest};
-use client::runner::{HttpRunnerClient, JobAcquiredResponse};
+use client::invoker::{Client as InvokerClient, Config as InvokerConfig};
 use ctx::{Background, Ctx};
 use miette::{bail, IntoDiagnostic, Result, WrapErr};
 use runner::Runner;
@@ -15,7 +12,7 @@ use worker::shell::ShellWorker;
 
 pub(crate) mod prompt;
 
-use config::{self, Config};
+use config::{self, Config, ConfigManager};
 
 #[derive(Parser, Debug)]
 #[command(
@@ -82,9 +79,9 @@ enum ServiceCommands {
 }
 
 impl Cli {
-    pub fn run(self, ctx: Ctx<Background>) -> Result<()> {
-        let pool = ClientPool::default();
-        let user_agent = Arc::new(format!("runner/{} (cli)", env!("CARGO_PKG_VERSION")));
+    pub async fn run(self, ctx: Ctx<Background>) -> Result<()> {
+        let user_agent = format!("runner/{} (cli)", env!("CARGO_PKG_VERSION"));
+
         match self.command {
             Commands::Configure {
                 token,
@@ -106,13 +103,9 @@ impl Cli {
                 };
 
                 config::validate_name(&name).wrap_err("Invalid name")?;
-
                 config::validate_url(&url).wrap_err("Invalid URL")?;
-
                 config::validate_token(&token).wrap_err("Invalid token")?;
-
                 config::validate_workdir(&workdir).wrap_err("Invalid workdir")?;
-
                 config::validate_capacity(capacity).wrap_err("Invalid capacity")?;
 
                 let request = RegistrationRequest {
@@ -242,34 +235,30 @@ impl Cli {
                 Ok(())
             }
             Commands::Run {} => {
-                let config = Config::read().wrap_err(
-                    "Failed to read config file. Please make sure the runner is registered",
-                )?;
+                let config_manager = ConfigManager::new();
+                let config = config_manager.get().await?;
 
-                config
-                    .validate()
-                    .wrap_err("Invalid configuration. Please re-register the runner.")?;
+                let invoker_client = InvokerClient::new(InvokerConfig {
+                    user_agent: user_agent.clone(),
+                    url: config.invoker_url.clone(),
+                });
 
                 let config = Arc::new(RwLock::new(config));
 
                 let worker_envs: Arc<Vec<(String, String)>> = Arc::new(dotenv::vars().collect());
 
-                let worker_builder = WorkerBuilder {
-                    config: Arc::clone(&config),
-                    pool: pool.clone(),
-                    user_agent: Arc::clone(&user_agent),
-                    envs: Arc::clone(&worker_envs),
-                };
+                // let worker_builder = WorkerBuilder {
+                //     config: Arc::clone(&config),
+                //     pool: pool.clone(),
+                //     user_agent: Arc::clone(&user_agent),
+                //     envs: Arc::clone(&worker_envs),
+                // };
 
-                let runner_client = HttpRunnerClient::new(
-                    Arc::clone(&config),
-                    pool.clone(),
-                    Arc::clone(&user_agent),
-                );
                 let runner = Runner::new(Arc::clone(&config), worker_builder);
 
                 runner
                     .run(ctx.clone(), runner_client)
+                    .await
                     .wrap_err("runner exited with error")?;
 
                 Ok(())

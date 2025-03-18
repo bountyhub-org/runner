@@ -1,13 +1,85 @@
+use std::sync::Arc;
+
 use miette::{miette, Diagnostic, IntoDiagnostic, LabeledSpan, Result, WrapErr};
 use serde::{Deserialize, Serialize};
-use std::io::{Read, Write};
-use std::{fs, io};
 use thiserror::Error;
+use tokio::fs;
+use tokio::io::AsyncWriteExt;
 use url::Url;
 use uuid::Uuid;
 
 pub const CONFIG_FILE: &str = ".runner";
 pub const RUNNER_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+#[derive(Clone, Default)]
+pub struct ConfigManager {
+    inner: Arc<tokio::sync::Mutex<Option<Config>>>,
+}
+
+impl ConfigManager {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub async fn get(&self) -> Result<Config> {
+        let mut config = self.inner.lock().await;
+        match *config {
+            Some(ref cfg) => {
+                cfg.validate()?;
+                Ok(cfg.clone())
+            }
+            None => {
+                let cfg = read().await?;
+                cfg.validate()?;
+                *config = Some(cfg.clone());
+                Ok(cfg)
+            }
+        }
+    }
+
+    pub async fn put(&self, cfg: &Config) -> Result<()> {
+        cfg.validate()?;
+        let mut config = self.inner.lock().await;
+        write(cfg).await?;
+        *config = Some(cfg.to_owned());
+        Ok(())
+    }
+}
+
+#[tracing::instrument]
+async fn read() -> Result<Config> {
+    let content = fs::read_to_string(CONFIG_FILE).await.map_err(Error::from)?;
+
+    let config: Config = serde_json::from_slice(content.as_bytes()).map_err(Error::from)?;
+
+    config.validate()?;
+
+    fs::create_dir_all(&config.workdir)
+        .await
+        .map_err(Error::from)
+        .wrap_err("Failed to create workdir")?;
+
+    Ok(config)
+}
+
+#[tracing::instrument]
+pub async fn write(cfg: &Config) -> Result<()> {
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(CONFIG_FILE)
+        .await
+        .map_err(Error::from)?;
+
+    let content = serde_json::to_string(cfg).map_err(Error::from)?;
+
+    file.write_all(content.as_bytes())
+        .await
+        .map_err(Error::from)?;
+
+    Ok(())
+}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Config {
@@ -31,43 +103,6 @@ impl Config {
         validate_workdir(&self.workdir).wrap_err("Workdir validation error")?;
         validate_capacity(self.capacity).wrap_err("Capacity validation error")?;
         Ok(())
-    }
-
-    #[tracing::instrument]
-    pub fn write(&self) -> Result<()> {
-        let mut file = fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .open(CONFIG_FILE)
-            .map_err(Error::from)?;
-
-        let content = serde_json::to_string(&self).map_err(Error::from)?;
-
-        file.write_all(content.as_bytes()).map_err(Error::from)?;
-
-        Ok(())
-    }
-
-    #[tracing::instrument]
-    pub fn read() -> Result<Config> {
-        let mut file = fs::OpenOptions::new()
-            .read(true)
-            .open(CONFIG_FILE)
-            .map_err(Error::from)?;
-
-        let content = &mut String::new();
-        file.read_to_string(content).map_err(Error::from)?;
-
-        let config: Config = serde_json::from_slice(content.as_bytes()).map_err(Error::from)?;
-
-        config.validate()?;
-
-        fs::create_dir_all(&config.workdir)
-            .map_err(Error::from)
-            .wrap_err("Failed to create workdir")?;
-
-        Ok(config)
     }
 }
 
@@ -154,7 +189,7 @@ pub enum Error {
     ValidationError,
 
     #[error(transparent)]
-    IoError(#[from] io::Error),
+    IoError(#[from] tokio::io::Error),
 
     #[error(transparent)]
     SerdeError(#[from] serde_json::Error),

@@ -19,6 +19,7 @@ tracing-subscriber = "^0.3"
 sudoservice = "0.1.0"
 dotenv = "^0.15"
 ctrlc = "^3"
+tokio = { version = "^1", features = ["macros", "rt-multi-thread"] }
 config = { path = "../config" }
 client = { path = "../client" }
 ctx = { path = "../ctx" }

@@ -26,7 +26,7 @@ where
     C: JobClient,
 {
     #[tracing::instrument(skip(self, ctx))]
-    fn run(self, ctx: Ctx<Background>) -> Result<()> {
+    async fn run(self, ctx: Ctx<Background>) -> Result<()> {
         tracing::info!("Resolving job {}", self.job.id);
         let job = self
             .client

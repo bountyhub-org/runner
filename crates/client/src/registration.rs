@@ -24,7 +24,7 @@ pub struct RegistrationResponse {
 }
 
 pub trait RegistrationClient: Send + Sync + Clone {
-    fn register(
+    async fn register(
         &self,
         ctx: Ctx<Background>,
         request: &RegistrationRequest,
@@ -40,7 +40,7 @@ mock! {
     }
 
     impl RegistrationClient for RegistrationClient {
-        fn register(
+        async fn register(
             &self,
             ctx: Ctx<Background>,
             request: &RegistrationRequest,
@@ -50,14 +50,14 @@ mock! {
 
 #[derive(Debug, Clone)]
 pub struct HttpRegistrationClient {
-    client: ureq::Agent,
+    client: reqwest::Client,
     url: String,
     user_agent: String,
     recoil: Recoil,
 }
 
 impl HttpRegistrationClient {
-    pub fn new(client: ureq::Agent, url: &str, user_agent: &str) -> Self {
+    pub fn new(client: reqwest::Client, url: &str, user_agent: &str) -> Self {
         Self {
             client,
             url: url.to_string(),
@@ -76,7 +76,7 @@ impl HttpRegistrationClient {
 }
 
 impl RegistrationClient for HttpRegistrationClient {
-    fn register(
+    async fn register(
         &self,
         ctx: Ctx<Background>,
         request: &RegistrationRequest,
@@ -84,28 +84,24 @@ impl RegistrationClient for HttpRegistrationClient {
         let endpoint = format!("{}/api/v0/runner-registrations/register", &self.url);
         let retry = || ctx.is_done();
         let mut recoil = self.recoil.clone();
-        let res = recoil.run(|| {
-            if ctx.is_done() {
-                return State::Fail(ClientError::CancellationError.into());
+
+        self
+            .client
+            .post(&endpoint)
+            .header("Content-Type", "application/json")
+            .header("User-Agent", &self.user_agent)
+            .json(request)
+            .send()
+            .await
+            .map_err(ClientError::from)
+        {
+            Ok(res) => State::Done(res),
+            Err(e @ ClientError::ConflictError) => {
+                State::Fail(miette!("Runner with the same name already exists").wrap_err(e))
             }
-            match self
-                .client
-                .post(&endpoint)
-                .set("Content-Type", "application/json")
-                .set("User-Agent", &self.user_agent)
-                .send_json(ureq::json!(request))
-                .map_err(ClientError::from)
-            {
-                Ok(res) => State::Done(res),
-                Err(e @ ClientError::ConflictError) => {
-                    State::Fail(miette!("Runner with the same name already exists").wrap_err(e))
-                }
-                Err(ClientError::ServerError | ClientError::ConnectionError(..)) => {
-                    State::Retry(retry)
-                }
-                Err(e) => State::Fail(miette!("Failed to register the runner").wrap_err(e)),
-            }
-        });
+            Err(ClientError::ServerError | ClientError::ConnectionError(..)) => State::Retry(retry),
+            Err(e) => State::Fail(miette!("Failed to register the runner").wrap_err(e)),
+        }
 
         match res {
             Ok(res) => {
