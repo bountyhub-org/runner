@@ -1,11 +1,15 @@
 use clap::Parser;
 use cli::Cli;
+use miette::Result;
 use std::process::exit;
+use tokio_util::sync::CancellationToken;
 use tracing::Level;
 use tracing_subscriber::FmtSubscriber;
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<()> {
+    let token = CancellationToken::new();
+
     let log_level = match std::env::var("RUNNER_LOG_LEVEL")
         .unwrap_or_else(|_| "INFO".to_string())
         .to_uppercase()
@@ -35,15 +39,12 @@ async fn main() {
 
     let app = Cli::parse();
 
-    let run_ctx = ctx.to_background();
-    ctrlc::set_handler(move || {
-        tracing::info!("Stopping the runner");
-        ctx.cancel();
-    })
-    .expect("Error setting Ctrl-C handler");
+    let run_token = token.clone();
+    let run_handle = tokio::spawn(async move { app.run(run_ctx).await });
 
-    if let Err(err) = app.run(run_ctx).await {
-        tracing::error!("Error: {:?}", err);
-        exit(1);
-    }
+    tokio::signal::ctrl_c()
+        .await
+        .expect("Failed to listen for ctrl+c event");
+    token.cancel();
+    run_handle.await
 }

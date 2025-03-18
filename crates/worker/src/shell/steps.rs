@@ -32,10 +32,7 @@ impl StepsRunner {
     }
 
     #[tracing::instrument(skip(self, ctx, client))]
-    pub(crate) async fn run<C>(&mut self, ctx: Ctx<Background>, client: &C) -> Result<()>
-    where
-        C: JobClient,
-    {
+    pub(crate) async fn run(&mut self, ctx: Ctx<Background>, client: &C) -> Result<()> {
         todo!()
     }
 
