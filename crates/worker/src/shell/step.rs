@@ -1,28 +1,32 @@
 use client::invoker::{LogLine, StepState, WorkerRequestEvent};
-use miette::{Context, IntoDiagnostic, Result, WrapErr};
-use std::path::{Path, PathBuf};
+use miette::{bail, Context, IntoDiagnostic, Result, WrapErr};
+use std::fmt::Write;
+use std::io::Seek;
+use std::path::{Component, Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
-use tokio::fs;
+use tokio::fs::{self, File};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::mpsc::Sender;
 use tokio::task::JoinHandle;
 use uuid::Uuid;
+use zip::write::{FileOptionExtension, FileOptions, SimpleFileOptions};
+use zip::ZipWriter;
 
 use super::execution_context::ExecutionContext;
 
-pub(crate) trait Step {
+pub(crate) trait RunStep {
     async fn run(&self, tx: Sender<WorkerRequestEvent>) -> Result<bool>;
 }
 
 #[derive(Debug)]
-pub(crate) struct SetupStep {
-    index: u32,
-    context: Arc<ExecutionContext>,
+pub(crate) struct SetupStep<'a> {
+    pub(crate) index: u32,
+    pub(crate) context: &'a ExecutionContext,
 }
 
-impl Step for SetupStep {
+impl RunStep for SetupStep<'_> {
     #[tracing::instrument(skip(tx))]
     async fn run(&self, tx: Sender<WorkerRequestEvent>) -> Result<bool> {
         let workdir = self.context.workdir();
@@ -82,12 +86,12 @@ impl Step for SetupStep {
 }
 
 #[derive(Debug)]
-pub(crate) struct TeardownStep {
-    index: u32,
-    context: Arc<ExecutionContext>,
+pub(crate) struct TeardownStep<'a> {
+    pub(crate) index: u32,
+    pub(crate) context: &'a ExecutionContext,
 }
 
-impl Step for TeardownStep {
+impl RunStep for TeardownStep<'_> {
     #[tracing::instrument(skip(tx))]
     async fn run(&self, tx: Sender<WorkerRequestEvent>) -> Result<bool> {
         let workdir = self.context.workdir();
@@ -150,12 +154,13 @@ impl Step for TeardownStep {
 struct CommandStep<'a> {
     index: u32,
     context: Arc<ExecutionContext>,
+    cond: &'a str,
     run: &'a str,
     shell: &'a str,
     allow_failed: bool,
 }
 
-impl Step for CommandStep<'_> {
+impl RunStep for CommandStep<'_> {
     #[tracing::instrument(skip(tx))]
     async fn run(&self, tx: Sender<WorkerRequestEvent>) -> Result<bool> {
         tracing::debug!("Sending command step running");
@@ -325,4 +330,150 @@ impl CommandStep<'_> {
 
         Ok(file_path)
     }
+}
+
+#[derive(Debug)]
+pub(crate) struct UploadStep<'a> {
+    pub(crate) index: u32,
+    pub(crate) context: &'a ExecutionContext,
+    pub(crate) uploads: &'a Vec<String>,
+}
+
+impl RunStep for UploadStep<'_> {
+    #[tracing::instrument(skip(tx))]
+    async fn run(&self, tx: Sender<WorkerRequestEvent>) -> Result<bool> {
+        let workdir = PathBuf::from(self.context.workdir());
+
+        let filename = format!("{}.zip", Uuid::new_v4());
+        let result_path = workdir.join(filename);
+
+        let uploads = self.uploads.clone();
+        let result: JoinHandle<Result<()>> = tokio::task::spawn_blocking(move || {
+            let result = std::fs::File::create(result_path.clone()).into_diagnostic()?;
+            let mut zip = ZipWriter::new(result);
+
+            let options = SimpleFileOptions::default()
+                .compression_method(zip::CompressionMethod::Deflated)
+                .compression_level(Some(9));
+
+            for upload in uploads {
+                let path = normalize_to_relative_path(&workdir, &upload)
+                    .wrap_err("Failed to normalize path")?;
+
+                if path.is_dir() {
+                    add_dir_to_zip(&mut zip, &path, &workdir, options)?;
+                } else {
+                    add_file_to_zip(&mut zip, &path, &path, options)?;
+                }
+            }
+
+            Ok(())
+        });
+
+        result.await.into_diagnostic()?.wrap_err("Zip failed")?;
+
+        Ok(true)
+    }
+}
+
+#[tracing::instrument]
+fn normalize_to_relative_path(root: &PathBuf, s: &str) -> Result<PathBuf> {
+    let path = Path::new(s);
+    let mut components = path.components().peekable();
+    let mut ret = if let Some(c @ Component::Prefix(..)) = components.peek().cloned() {
+        components.next();
+        PathBuf::from(c.as_os_str())
+    } else {
+        PathBuf::new()
+    };
+
+    for component in components {
+        match component {
+            Component::Prefix(..) => unreachable!(),
+            Component::RootDir => {
+                bail!("upload record {s} cannot be taken from the root");
+            }
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !ret.pop() {
+                    bail!("upload record {s} cannot be outside of the present working directory");
+                }
+            }
+            Component::Normal(c) => {
+                ret.push(c);
+            }
+        }
+    }
+
+    // double check when symlinks are resolved
+    let canonized = root
+        .join(ret)
+        .canonicalize()
+        .into_diagnostic()
+        .wrap_err("failed to canonicalize path")?;
+
+    if !canonized.starts_with(root) {
+        bail!("path '{s}' after resolution to '{canonized:?}' doesn't start with {root:?}",)
+    }
+
+    Ok(canonized)
+}
+
+#[tracing::instrument(skip(w))]
+fn add_file_to_zip<T>(
+    w: &mut ZipWriter<std::fs::File>,
+    src: &Path,
+    dst: &Path,
+    option: FileOptions<T>,
+) -> Result<()>
+where
+    T: FileOptionExtension + Copy,
+{
+    w.start_file_from_path(dst, option)
+        .into_diagnostic()
+        .wrap_err("Failed to start file from path")?;
+
+    let mut f = std::fs::File::open(src)
+        .into_diagnostic()
+        .wrap_err("Failed to open file to zip")?;
+
+    std::io::copy(&mut f, w)
+        .into_diagnostic()
+        .wrap_err("Failed to copy content from file to zip")?;
+
+    Ok(())
+}
+
+#[tracing::instrument(skip(w))]
+fn add_dir_to_zip<T>(
+    w: &mut ZipWriter<std::fs::File>,
+    dir_path: &Path,
+    base_path: &Path,
+    option: FileOptions<T>,
+) -> Result<()>
+where
+    T: FileOptionExtension + Copy,
+{
+    for entry in std::fs::read_dir(dir_path)
+        .into_diagnostic()
+        .wrap_err("Failed to read directory")?
+    {
+        let path = entry.into_diagnostic()?.path();
+        if path.is_symlink() {
+            tracing::info!("Path is symlink, skipping");
+            continue;
+        }
+
+        let relative_path = path
+            .strip_prefix(base_path)
+            .into_diagnostic()
+            .wrap_err("Failed to create relative path")?;
+
+        if path.is_dir() {
+            add_dir_to_zip(w, &path, base_path, option)?;
+        } else {
+            add_file_to_zip(w, &path, relative_path, option)?;
+        }
+    }
+    Ok(())
 }

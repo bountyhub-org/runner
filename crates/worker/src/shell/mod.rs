@@ -1,11 +1,11 @@
 use self::execution_context::ExecutionContext;
 use super::Worker;
 use client::invoker::{
-    Client as InvokerClient, JobAcquiredResponse, WorkerRequestEvent, WorkerResponseEvent,
+    Client as InvokerClient, JobAcquiredResponse, Step, WorkerRequestEvent, WorkerResponseEvent,
 };
 use miette::{bail, IntoDiagnostic, Result, WrapErr};
 use std::{path::Path, sync::Arc};
-use steps::StepsRunner;
+use step::{RunStep, SetupStep, TeardownStep, UploadStep};
 use tokio_util::sync::CancellationToken;
 
 pub mod execution_context;
@@ -53,16 +53,47 @@ impl Worker for ShellWorker {
 
         let job_name = job.cfg.name.clone();
         tracing::info!("Received job {job_name}");
+
         let execution_context = ExecutionContext::new(workdir, self.envs.clone(), job.cfg);
 
-        tracing::info!("Building steps");
-        let mut steps = StepsRunner::new(execution_context, job.steps);
-        tracing::debug!("Built steps: {:?}", steps);
+        for (index, step) in job.steps.iter().enumerate() {
+            let tx = tx.clone();
+            let index = index as u32;
+            let result = match step {
+                Step::Setup => {
+                    let step = SetupStep {
+                        index,
+                        context: &execution_context,
+                    };
 
-        tracing::info!("Running job: {}", job_name);
-        steps
-            .run(ct.clone(), self.client.clone())
-            .await
-            .wrap_err("steps.run failed")
+                    step.run(tx).await;
+                }
+                Step::Teardown => {
+                    let step = TeardownStep {
+                        index,
+                        context: &execution_context,
+                    };
+
+                    step.run(tx).await;
+                }
+                Step::Upload { uploads } => {
+                    let step = UploadStep {
+                        index,
+                        context: &execution_context,
+                        uploads,
+                    };
+
+                    step.run(tx).await
+                }
+                Step::Command {
+                    cond,
+                    run,
+                    shell,
+                    allow_failed,
+                } => todo!(),
+            };
+        }
+
+        Ok(())
     }
 }
