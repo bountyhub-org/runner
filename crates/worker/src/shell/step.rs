@@ -1,3 +1,4 @@
+use cellang::Value;
 use client::invoker::{LogLine, StepState, WorkerRequestEvent};
 use miette::{bail, Context, IntoDiagnostic, Result, WrapErr};
 use std::path::{Component, Path, PathBuf};
@@ -161,6 +162,25 @@ struct CommandStep<'a> {
 impl RunStep for CommandStep<'_> {
     #[tracing::instrument(skip(tx))]
     async fn run(&self, tx: Sender<WorkerRequestEvent>) -> Result<bool> {
+        match self
+            .context
+            .eval_expr(self.cond)
+            .wrap_err("Condition evaluation failed")?
+        {
+            Value::Bool(false) => {
+                tx.send(WorkerRequestEvent::StepTimeline {
+                    step_index: self.index,
+                    state: StepState::Skipped,
+                })
+                .await
+                .into_diagnostic()
+                .wrap_err("Failed to post step skipped")?;
+                return Ok(true);
+            }
+            Value::Bool(true) => {}
+            v => bail!("Condition evaluated to value {v:?}, expected bool"),
+        };
+
         tracing::debug!("Sending command step running");
         tx.send(WorkerRequestEvent::StepTimeline {
             step_index: self.index,
@@ -360,6 +380,17 @@ pub(crate) struct UploadStep<'a> {
 impl RunStep for UploadStep<'_> {
     #[tracing::instrument(skip(tx))]
     async fn run(&self, tx: Sender<WorkerRequestEvent>) -> Result<bool> {
+        if !self.context.ok() {
+            tx.send(WorkerRequestEvent::StepTimeline {
+                step_index: self.index,
+                state: StepState::Skipped,
+            })
+            .await
+            .into_diagnostic()
+            .wrap_err("Failed to post step skipped")?;
+            return Ok(true);
+        }
+
         tx.send(WorkerRequestEvent::StepTimeline {
             step_index: self.index,
             state: StepState::Running,
@@ -383,7 +414,7 @@ impl RunStep for UploadStep<'_> {
                 .compression_level(Some(9));
 
             for upload in uploads {
-                let path = normalize_to_relative_path(&workdir, &upload)
+                let path = normalize_abs_path(&workdir, Path::new(upload.as_str()))
                     .wrap_err("Failed to normalize path")?;
 
                 if path.is_dir() {
@@ -403,9 +434,8 @@ impl RunStep for UploadStep<'_> {
 }
 
 #[tracing::instrument]
-fn normalize_to_relative_path(root: &PathBuf, s: &str) -> Result<PathBuf> {
-    let path = Path::new(s);
-    let mut components = path.components().peekable();
+fn normalize_abs_path(root: &Path, s: &Path) -> Result<PathBuf> {
+    let mut components = s.components().peekable();
     let mut ret = if let Some(c @ Component::Prefix(..)) = components.peek().cloned() {
         components.next();
         PathBuf::from(c.as_os_str())
