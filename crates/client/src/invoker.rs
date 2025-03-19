@@ -170,14 +170,7 @@ impl LogLine {
     }
 }
 
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct StepTimeline {
-    pub step_index: u32,
-    pub state: TimelineStepState,
-}
-
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Clone, Copy)]
 #[serde(rename_all = "camelCase")]
 pub enum StepState {
     Running,
@@ -234,7 +227,7 @@ impl Client {
         .await
         .into_diagnostic()?;
 
-        let (recv_tx, recv_rx) = mpsc::channel(1);
+        let (recv_tx, recv_rx) = mpsc::channel(16);
         let (send_tx, send_rx) = mpsc::channel(1);
 
         let (sender, receiver) = stream.split();
