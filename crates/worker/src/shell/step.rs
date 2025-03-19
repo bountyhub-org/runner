@@ -1,11 +1,9 @@
 use client::invoker::{LogLine, StepState, WorkerRequestEvent};
 use miette::{bail, Context, IntoDiagnostic, Result, WrapErr};
-use std::fmt::Write;
-use std::io::Seek;
 use std::path::{Component, Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
-use tokio::fs::{self, File};
+use tokio::fs::{self};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::mpsc::Sender;
@@ -307,7 +305,27 @@ impl RunStep for CommandStep<'_> {
             .into_diagnostic()?
             .wrap_err("Stderr returned an error")?;
 
-        Ok(exit_code == 0 || self.allow_failed)
+        if exit_code == 0 {
+            tx.send(WorkerRequestEvent::StepTimeline {
+                step_index: self.index,
+                state: StepState::Succeeded,
+            })
+            .await
+            .into_diagnostic()
+            .wrap_err("Failed to write succeeded step timeline")?;
+
+            Ok(true)
+        } else {
+            tx.send(WorkerRequestEvent::StepTimeline {
+                step_index: self.index,
+                state: StepState::Failed,
+            })
+            .await
+            .into_diagnostic()
+            .wrap_err("Failed to write failed step timeline")?;
+
+            Ok(self.allow_failed)
+        }
     }
 }
 
@@ -342,6 +360,14 @@ pub(crate) struct UploadStep<'a> {
 impl RunStep for UploadStep<'_> {
     #[tracing::instrument(skip(tx))]
     async fn run(&self, tx: Sender<WorkerRequestEvent>) -> Result<bool> {
+        tx.send(WorkerRequestEvent::StepTimeline {
+            step_index: self.index,
+            state: StepState::Running,
+        })
+        .await
+        .into_diagnostic()
+        .wrap_err("Failed to post step running")?;
+
         let workdir = PathBuf::from(self.context.workdir());
 
         let filename = format!("{}.zip", Uuid::new_v4());
