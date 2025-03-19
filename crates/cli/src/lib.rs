@@ -251,6 +251,7 @@ impl Cli {
                 let worker_builder = WorkerBuilder {
                     root_workdir: config.workdir,
                     envs: Arc::clone(&worker_envs),
+                    client: invoker_client.clone(),
                 };
 
                 let runner = Runner::new(Arc::clone(&config), worker_builder);
@@ -281,6 +282,7 @@ impl Cli {
 struct WorkerBuilder {
     root_workdir: String,
     envs: Arc<Vec<(String, String)>>,
+    client: InvokerClient,
 }
 
 impl runner::WorkerBuilder for WorkerBuilder {
@@ -291,6 +293,7 @@ impl runner::WorkerBuilder for WorkerBuilder {
             root_workdir: self.root_workdir,
             envs: Arc::clone(&self.envs),
             job,
+            client,
         }
     }
 }

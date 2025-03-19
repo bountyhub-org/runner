@@ -1,6 +1,7 @@
 use super::execution_context::ExecutionContext;
 use artifact::ArtifactBuilder;
 use cellang::Value;
+use client::invoker::{Client as InvokerClient, WorkerRequestEvent};
 use client::job::{
     JobClient, LogDestination, LogLine, Step, TimelineRequest, TimelineRequestStepOutcome,
     TimelineRequestStepState,
@@ -15,6 +16,7 @@ use std::sync::mpsc::{self, TryRecvError};
 use std::thread;
 use std::time::Duration;
 use time::OffsetDateTime;
+use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 #[derive(Debug)]
@@ -31,9 +33,8 @@ impl StepsRunner {
         }
     }
 
-    #[tracing::instrument(skip(self, ctx, client))]
-    pub(crate) async fn run(&mut self, ctx: Ctx<Background>, client: &C) -> Result<()> {
-        todo!()
+    #[tracing::instrument(skip(self, ct, client))]
+    pub(crate) async fn run(&mut self, ct: CancellationToken, client: InvokerClient) -> Result<()> {
     }
 
     #[tracing::instrument(skip(self))]

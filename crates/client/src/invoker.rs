@@ -15,6 +15,7 @@ use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio_tungstenite::{tungstenite::Message, MaybeTlsStream, WebSocketStream};
 use uuid::Uuid;
 
+#[derive(Clone)]
 pub struct Client {
     cfg: Config,
     client: ClientWithMiddleware,
@@ -62,6 +63,7 @@ pub enum RunnerResponseEvent {
 #[serde(tag = "kind", content = "data")]
 pub enum WorkerRequestEvent {
     ResolveJob { id: Uuid, token: String },
+    StepTimeline { step_index: u32, state: StepState },
     SendLogLine { line: LogLine },
 }
 
@@ -146,6 +148,51 @@ pub struct LogLine {
     #[serde(with = "time::serde::rfc3339")]
     pub timestamp: OffsetDateTime,
     pub line: String,
+}
+
+impl LogLine {
+    pub fn stdout(step_index: u32, line: String) -> LogLine {
+        LogLine {
+            dst: LogDestination::Stdout,
+            timestamp: OffsetDateTime::now_utc(),
+            step_index,
+            line,
+        }
+    }
+
+    pub fn stderr(step_index: u32, line: String) -> LogLine {
+        LogLine {
+            dst: LogDestination::Stderr,
+            timestamp: OffsetDateTime::now_utc(),
+            step_index,
+            line,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StepTimeline {
+    pub step_index: u32,
+    pub state: TimelineStepState,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum StepState {
+    Running,
+    Succeeded,
+    Failed,
+    Cancelled,
+    Skipped,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct JobAcquiredResponse {
+    pub id: Uuid,
+    #[serde(skip_serializing)]
+    pub token: String,
 }
 
 impl Client {

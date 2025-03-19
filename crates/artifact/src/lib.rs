@@ -1,8 +1,8 @@
-use ctx::{Background, Ctx};
 use miette::{bail, IntoDiagnostic, Result, WrapErr};
 use std::fs::File;
 use std::path::{Component, Path, PathBuf};
 use std::{fs, io};
+use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 use zip::write::{FileOptionExtension, FileOptions, SimpleFileOptions};
 use zip::ZipWriter;
@@ -80,100 +80,101 @@ impl ArtifactBuilder {
         })
     }
 
-    #[tracing::instrument(skip(ctx))]
-    pub fn build(&self, ctx: Ctx<Background>) -> Result<Artifact> {
-        let filename = format!("{}.zip", Uuid::new_v4());
-        let result_path = self.root_dir.join(filename);
-
-        let result = File::create(result_path.clone()).into_diagnostic()?;
-
-        let mut zip = ZipWriter::new(result);
-        let options = SimpleFileOptions::default()
-            .compression_method(zip::CompressionMethod::Deflated)
-            .compression_level(Some(9));
-
-        tracing::debug!("Zipping paths: {:?}", self.uploads);
-        for path in &self.uploads {
-            if ctx.is_done() {
-                bail!("Context is cancelled");
-            }
-            self.zip_path(ctx.clone(), &mut zip, path, options)?;
-        }
-
-        tracing::debug!("Finishing zip");
-        zip.finish().into_diagnostic()?;
-
-        Ok(Artifact { file: result_path })
+    #[tracing::instrument(skip(ct))]
+    pub fn build(&self, ct: CancellationToken) -> Result<Artifact> {
+        todo!();
+        // let filename = format!("{}.zip", Uuid::new_v4());
+        // let result_path = self.root_dir.join(filename);
+        //
+        // let result = File::create(result_path.clone()).into_diagnostic()?;
+        //
+        // let mut zip = ZipWriter::new(result);
+        // let options = SimpleFileOptions::default()
+        //     .compression_method(zip::CompressionMethod::Deflated)
+        //     .compression_level(Some(9));
+        //
+        // tracing::debug!("Zipping paths: {:?}", self.uploads);
+        // for path in &self.uploads {
+        //     if ct.is_cancelled() {
+        //         bail!("Context is cancelled");
+        //     }
+        //     self.zip_path(ctx.clone(), &mut zip, path, options)?;
+        // }
+        //
+        // tracing::debug!("Finishing zip");
+        // zip.finish().into_diagnostic()?;
+        //
+        // Ok(Artifact { file: result_path })
     }
 
-    #[tracing::instrument(skip(w, options))]
-    fn zip_path<T: FileOptionExtension + Copy>(
-        &self,
-        ctx: Ctx<Background>,
-        w: &mut ZipWriter<File>,
-        path: &PathBuf,
-        options: FileOptions<T>,
-    ) -> Result<()> {
-        if ctx.is_done() {
-            bail!("Context is cancelled");
-        }
-
-        if path.is_dir() {
-            let span = tracing::info_span!("Zipping directory", path = ?path);
-            let _guard = span.enter();
-
-            tracing::info!("Reading directory entries");
-            for entry in fs::read_dir(path.clone()).into_diagnostic()? {
-                let entry = entry.into_diagnostic()?;
-
-                let path = entry.path();
-                tracing::debug!("Entry path: {:?}", path);
-
-                if path.is_symlink() {
-                    tracing::info!("Path is symlink, skipping");
-                    continue;
-                }
-
-                if path.is_dir() {
-                    tracing::info!("Path is directory, recursing into directory");
-                    self.zip_path(
-                        ctx.clone(),
-                        w,
-                        &path.strip_prefix(&self.root_dir).unwrap().to_path_buf(),
-                        options,
-                    )?;
-                } else {
-                    tracing::info!("Path is file, copying file");
-                    w.start_file_from_path(
-                        path.strip_prefix(&self.root_dir).into_diagnostic()?,
-                        options,
-                    )
-                    .into_diagnostic()?;
-
-                    tracing::info!("Opening file: {path:?}");
-                    let mut f = File::open(self.root_dir.join(&path)).into_diagnostic()?;
-
-                    tracing::info!("Copying file: {path:?}");
-                    io::copy(&mut f, w).into_diagnostic()?;
-                }
-            }
-        } else {
-            tracing::info!("Path is file, copying file");
-            w.start_file_from_path(
-                path.strip_prefix(&self.root_dir).into_diagnostic()?,
-                options,
-            )
-            .into_diagnostic()?;
-
-            tracing::info!("Opening file: {path:?}");
-            let mut f = File::open(self.root_dir.join(path)).into_diagnostic()?;
-
-            tracing::info!("Copying file: {path:?}");
-            io::copy(&mut f, w).into_diagnostic()?;
-        }
-
-        Ok(())
-    }
+    // #[tracing::instrument(skip(w, options))]
+    // fn zip_path<T: FileOptionExtension + Copy>(
+    //     &self,
+    //     ctx: Ctx<Background>,
+    //     w: &mut ZipWriter<File>,
+    //     path: &PathBuf,
+    //     options: FileOptions<T>,
+    // ) -> Result<()> {
+    //     if ctx.is_done() {
+    //         bail!("Context is cancelled");
+    //     }
+    //
+    //     if path.is_dir() {
+    //         let span = tracing::info_span!("Zipping directory", path = ?path);
+    //         let _guard = span.enter();
+    //
+    //         tracing::info!("Reading directory entries");
+    //         for entry in fs::read_dir(path.clone()).into_diagnostic()? {
+    //             let entry = entry.into_diagnostic()?;
+    //
+    //             let path = entry.path();
+    //             tracing::debug!("Entry path: {:?}", path);
+    //
+    //             if path.is_symlink() {
+    //                 tracing::info!("Path is symlink, skipping");
+    //                 continue;
+    //             }
+    //
+    //             if path.is_dir() {
+    //                 tracing::info!("Path is directory, recursing into directory");
+    //                 self.zip_path(
+    //                     ctx.clone(),
+    //                     w,
+    //                     &path.strip_prefix(&self.root_dir).unwrap().to_path_buf(),
+    //                     options,
+    //                 )?;
+    //             } else {
+    //                 tracing::info!("Path is file, copying file");
+    //                 w.start_file_from_path(
+    //                     path.strip_prefix(&self.root_dir).into_diagnostic()?,
+    //                     options,
+    //                 )
+    //                 .into_diagnostic()?;
+    //
+    //                 tracing::info!("Opening file: {path:?}");
+    //                 let mut f = File::open(self.root_dir.join(&path)).into_diagnostic()?;
+    //
+    //                 tracing::info!("Copying file: {path:?}");
+    //                 io::copy(&mut f, w).into_diagnostic()?;
+    //             }
+    //         }
+    //     } else {
+    //         tracing::info!("Path is file, copying file");
+    //         w.start_file_from_path(
+    //             path.strip_prefix(&self.root_dir).into_diagnostic()?,
+    //             options,
+    //         )
+    //         .into_diagnostic()?;
+    //
+    //         tracing::info!("Opening file: {path:?}");
+    //         let mut f = File::open(self.root_dir.join(path)).into_diagnostic()?;
+    //
+    //         tracing::info!("Copying file: {path:?}");
+    //         io::copy(&mut f, w).into_diagnostic()?;
+    //     }
+    //
+    //     Ok(())
+    // }
 }
 
 #[derive(Debug)]

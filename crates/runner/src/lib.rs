@@ -11,6 +11,7 @@ use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::sync::{Arc, RwLock};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
+use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 use worker::Worker;
 
