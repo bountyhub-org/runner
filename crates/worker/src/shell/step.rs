@@ -3,7 +3,6 @@ use client::invoker::{LogLine, StepState, WorkerRequestEvent};
 use miette::{bail, Context, IntoDiagnostic, Result};
 use std::path::{Component, Path, PathBuf};
 use std::process::Stdio;
-use std::sync::Arc;
 use tokio::fs::{self};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
