@@ -55,7 +55,7 @@ pub enum RunnerRequestEvent {
 #[serde(tag = "kind", content = "data")]
 pub enum RunnerResponseEvent {
     UpgradeRequired { version: String },
-    AcquiredJobs { jobs: Vec<Uuid> },
+    AcquiredJobs { jobs: Vec<JobAcquiredResponse> },
 }
 
 #[derive(Debug, Serialize, Clone)]
