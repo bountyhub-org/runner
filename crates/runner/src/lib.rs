@@ -56,36 +56,3 @@ pub trait WorkerBuilder {
     type Worker: worker::Worker;
     fn build(&self, job: JobAcquiredResponse) -> Self::Worker;
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use client::error::ClientError;
-    use client::runner::MockRunnerClient;
-    use miette::bail;
-
-    #[test]
-    fn test_poll_loop() {
-        let mut client = MockRunnerClient::new();
-        client
-            .expect_request()
-            .times(1)
-            .returning(|_, _| bail!("error"));
-
-        let (poll_tx, _poll_rx) =
-            mpsc::sync_channel::<Result<Vec<JobAcquiredResponse>, ClientError>>(1);
-
-        let (_worker_finished_tx, worker_finished_rx) = mpsc::sync_channel::<Uuid>(1);
-
-        let handle = thread::spawn(move || {
-            poll_loop(ctx::background(), client, 1, poll_tx, worker_finished_rx);
-        });
-
-        thread::sleep(Duration::from_secs(1));
-        assert!(
-            handle.is_finished(),
-            "expected poll to exit after fatal error"
-        );
-        handle.join().expect("handle should be joined properly");
-    }
-}

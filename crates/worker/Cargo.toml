@@ -19,7 +19,6 @@ shlex = "1"
 zip = { version = "2" }
 time = "^0.3"
 client = { path = "../client" }
-artifact = { path = "../artifact" }
 jobengine = { path = "../jobengine" }
 
 [dev-dependencies]

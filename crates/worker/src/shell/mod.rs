@@ -5,12 +5,11 @@ use client::invoker::{
 };
 use miette::{bail, IntoDiagnostic, Result, WrapErr};
 use std::{path::Path, sync::Arc};
-use step::{RunStep, SetupStep, TeardownStep, UploadStep};
+use step::{CommandStep, RunStep, SetupStep, TeardownStep, UploadStep};
 use tokio_util::sync::CancellationToken;
 
 pub mod execution_context;
 mod step;
-pub mod steps;
 
 #[derive(Clone)]
 pub struct ShellWorker {
@@ -37,7 +36,7 @@ impl Worker for ShellWorker {
         })
         .await
         .into_diagnostic()
-        .wrap_err("Failed to send resolve job");
+        .wrap_err("Failed to send resolve job")?;
 
         let job = match rx.recv().await {
             Some(WorkerResponseEvent::JobResolved(resolved)) => resolved,
@@ -66,7 +65,7 @@ impl Worker for ShellWorker {
                         context: &execution_context,
                     };
 
-                    step.run(tx).await;
+                    step.run(tx).await
                 }
                 Step::Teardown => {
                     let step = TeardownStep {
@@ -74,7 +73,7 @@ impl Worker for ShellWorker {
                         context: &execution_context,
                     };
 
-                    step.run(tx).await;
+                    step.run(tx).await
                 }
                 Step::Upload { uploads } => {
                     let step = UploadStep {
@@ -90,7 +89,18 @@ impl Worker for ShellWorker {
                     run,
                     shell,
                     allow_failed,
-                } => todo!(),
+                } => {
+                    let step = CommandStep {
+                        index,
+                        context: &execution_context,
+                        cond,
+                        run,
+                        shell,
+                        allow_failed: *allow_failed,
+                    };
+
+                    step.run(tx).await
+                }
             };
         }
 

@@ -1,5 +1,4 @@
 use cellang::Value as CelValue;
-use client::job::{TimelineRequestStepOutcome, TimelineRequestStepState};
 use jobengine::JobEngine;
 use miette::Result;
 use std::sync::Arc;
@@ -101,26 +100,14 @@ impl ExecutionContext {
     /// Update the execution context with the state of the step.
     /// If success is already false, it will not be updated.
     #[tracing::instrument(skip(self))]
-    pub fn update_state(&mut self, state: TimelineRequestStepState) {
-        if !self.ok {
-            return;
-        }
-        let fail = match state {
-            TimelineRequestStepState::Cancelled => true,
-            TimelineRequestStepState::Failed { outcome, .. } => {
-                matches!(outcome, TimelineRequestStepOutcome::Failed)
-            }
-            _ => false,
-        };
-        self.ok = !fail;
-        self.engine.set_ok(self.ok);
+    pub fn set_ok(&mut self, ok: bool) {
+        self.engine.set_ok(self.ok && ok);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use client::job::TimelineRequestStepState;
     use jobengine::{JobMeta, ProjectMeta, WorkflowMeta, WorkflowRevisionMeta};
     use std::{collections::BTreeMap, sync::Arc};
     use uuid::Uuid;

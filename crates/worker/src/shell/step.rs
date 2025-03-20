@@ -1,6 +1,6 @@
 use cellang::Value;
 use client::invoker::{LogLine, StepState, WorkerRequestEvent};
-use miette::{bail, Context, IntoDiagnostic, Result, WrapErr};
+use miette::{bail, Context, IntoDiagnostic, Result};
 use std::path::{Component, Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
@@ -150,13 +150,13 @@ impl RunStep for TeardownStep<'_> {
 }
 
 #[derive(Debug)]
-struct CommandStep<'a> {
-    index: u32,
-    context: Arc<ExecutionContext>,
-    cond: &'a str,
-    run: &'a str,
-    shell: &'a str,
-    allow_failed: bool,
+pub(crate) struct CommandStep<'a> {
+    pub(crate) index: u32,
+    pub(crate) context: &'a ExecutionContext,
+    pub(crate) cond: &'a str,
+    pub(crate) run: &'a str,
+    pub(crate) shell: &'a str,
+    pub(crate) allow_failed: bool,
 }
 
 impl RunStep for CommandStep<'_> {
@@ -409,7 +409,7 @@ impl RunStep for UploadStep<'_> {
             let result = std::fs::File::create(result_path.clone()).into_diagnostic()?;
             let mut zip = ZipWriter::new(result);
 
-            let options = SimpleFileOptions::default()
+            let option = SimpleFileOptions::default()
                 .compression_method(zip::CompressionMethod::Deflated)
                 .compression_level(Some(9));
 
@@ -418,9 +418,9 @@ impl RunStep for UploadStep<'_> {
                     .wrap_err("Failed to normalize path")?;
 
                 if path.is_dir() {
-                    add_dir_to_zip(&mut zip, &path, &workdir, options)?;
+                    add_dir_to_zip(&mut zip, &path, &workdir, option)?;
                 } else {
-                    add_file_to_zip(&mut zip, &path, &path, options)?;
+                    add_file_to_zip(&mut zip, &path, &path, option)?;
                 }
             }
 
@@ -447,12 +447,12 @@ fn normalize_abs_path(root: &Path, s: &Path) -> Result<PathBuf> {
         match component {
             Component::Prefix(..) => unreachable!(),
             Component::RootDir => {
-                bail!("upload record {s} cannot be taken from the root");
+                bail!("upload record {s:?} cannot be taken from the root");
             }
             Component::CurDir => {}
             Component::ParentDir => {
                 if !ret.pop() {
-                    bail!("upload record {s} cannot be outside of the present working directory");
+                    bail!("upload record {s:?} cannot be outside of the present working directory");
                 }
             }
             Component::Normal(c) => {
@@ -469,13 +469,13 @@ fn normalize_abs_path(root: &Path, s: &Path) -> Result<PathBuf> {
         .wrap_err("failed to canonicalize path")?;
 
     if !canonized.starts_with(root) {
-        bail!("path '{s}' after resolution to '{canonized:?}' doesn't start with {root:?}",)
+        bail!("path '{s:?}' after resolution to '{canonized:?}' doesn't start with {root:?}",)
     }
 
     Ok(canonized)
 }
 
-#[tracing::instrument(skip(w))]
+#[tracing::instrument(skip(w, option))]
 fn add_file_to_zip<T>(
     w: &mut ZipWriter<std::fs::File>,
     src: &Path,
@@ -500,7 +500,7 @@ where
     Ok(())
 }
 
-#[tracing::instrument(skip(w))]
+#[tracing::instrument(skip(w, option))]
 fn add_dir_to_zip<T>(
     w: &mut ZipWriter<std::fs::File>,
     dir_path: &Path,
