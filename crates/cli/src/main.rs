@@ -1,7 +1,6 @@
 use clap::Parser;
 use cli::Cli;
-use miette::Result;
-use std::process::exit;
+use miette::{IntoDiagnostic, Result};
 use tokio_util::sync::CancellationToken;
 use tracing::Level;
 use tracing_subscriber::FmtSubscriber;
@@ -34,17 +33,14 @@ async fn main() -> Result<()> {
 
     tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
 
-    let background = ctx::background();
-    let ctx = background.with_cancel();
-
     let app = Cli::parse();
 
     let run_token = token.clone();
-    let run_handle = tokio::spawn(async move { app.run(run_ctx).await });
+    let run_handle = tokio::spawn(async move { app.run(run_token).await });
 
     tokio::signal::ctrl_c()
         .await
         .expect("Failed to listen for ctrl+c event");
     token.cancel();
-    run_handle.await
+    run_handle.await.into_diagnostic()?
 }

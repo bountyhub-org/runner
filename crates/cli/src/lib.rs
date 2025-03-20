@@ -1,13 +1,15 @@
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::{generate, Shell};
-use client::invoker::{Client as InvokerClient, Config as InvokerConfig};
-use ctx::{Background, Ctx};
+use client::invoker::{
+    Client as InvokerClient, Config as InvokerConfig, JobAcquiredResponse, RegistrationRequest,
+};
 use miette::{bail, IntoDiagnostic, Result, WrapErr};
 use runner::Runner;
 use std::io::{self, Write};
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use sudoservice::service::Service;
 use sudoservice::systemd::{Config as SystemdConfig, Systemd};
+use tokio_util::sync::CancellationToken;
 use worker::shell::ShellWorker;
 
 pub(crate) mod prompt;
@@ -79,9 +81,10 @@ enum ServiceCommands {
 }
 
 impl Cli {
-    pub async fn run(self, ctx: Ctx<Background>) -> Result<()> {
+    pub async fn run(self, ct: CancellationToken) -> Result<()> {
         let user_agent = format!("runner/{} (cli)", env!("CARGO_PKG_VERSION"));
 
+        let config_manager = ConfigManager::new();
         match self.command {
             Commands::Configure {
                 token,
@@ -97,7 +100,9 @@ impl Cli {
                         if unattended {
                             config::generate_default_name()
                         } else {
-                            prompt::runner_name().wrap_err("failed to prompt for runner name")?
+                            prompt::runner_name()
+                                .await
+                                .wrap_err("failed to prompt for runner name")?
                         }
                     }
                 };
@@ -114,10 +119,14 @@ impl Cli {
                     workdir,
                 };
 
-                let client = HttpRegistrationClient::new(pool.default_client(), &url, &user_agent);
+                let invoker_client = InvokerClient::new(InvokerConfig {
+                    user_agent: user_agent.clone(),
+                    url: url.clone(),
+                });
 
-                let response = client
-                    .register(ctx, &request)
+                let response = invoker_client
+                    .register(&request)
+                    .await
                     .wrap_err("Failed to register runner")?;
 
                 let config = Config {
@@ -134,14 +143,17 @@ impl Cli {
                     .validate()
                     .wrap_err("Failed to validate configuration after registration")?;
 
-                config.write().wrap_err("failed to write config")?;
+                config_manager
+                    .put(&config)
+                    .await
+                    .wrap_err("failed to write config")?;
 
                 tracing::info!("Configuration saved to {}", config::CONFIG_FILE);
 
                 Ok(())
             }
             Commands::Service { action } => {
-                let config = Config::read().wrap_err(
+                let config = config_manager.get().await.wrap_err(
                     "Failed to read config file. Please make sure the runner is registered",
                 )?;
 
@@ -254,10 +266,10 @@ impl Cli {
                     client: invoker_client.clone(),
                 };
 
-                let runner = Runner::new(Arc::clone(&config), worker_builder);
+                let runner = Runner::new(config_manager.clone(), worker_builder);
 
                 runner
-                    .run(ctx.clone(), runner_client)
+                    .run(ct.clone(), invoker_client)
                     .await
                     .wrap_err("Runner exited with error")?;
 
@@ -286,14 +298,14 @@ struct WorkerBuilder {
 }
 
 impl runner::WorkerBuilder for WorkerBuilder {
-    type Worker = ShellWorker<HttpJobClient>;
+    type Worker = ShellWorker;
 
     fn build(&self, job: JobAcquiredResponse) -> Self::Worker {
         ShellWorker {
-            root_workdir: self.root_workdir,
+            root_workdir: self.root_workdir.clone(),
             envs: Arc::clone(&self.envs),
             job,
-            client,
+            client: self.client.clone(),
         }
     }
 }

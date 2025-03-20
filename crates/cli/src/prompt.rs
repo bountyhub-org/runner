@@ -1,9 +1,9 @@
 use miette::{IntoDiagnostic, Result, WrapErr};
-use tokio::io::{self, AsyncBufReadExt, AsyncWriteExt};
+use tokio::io::{stdin, stdout, AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 pub(crate) async fn runner_name() -> Result<String> {
-    let mut stdout = io::stdout();
-    let stdin = io::stdin();
+    let mut stdout = stdout();
+    let mut stdin = BufReader::new(stdin());
 
     let default_runner_name = config::generate_default_name();
 
@@ -12,19 +12,21 @@ pub(crate) async fn runner_name() -> Result<String> {
         buf.clear();
         stdout
             .write_all(format!("Runner name({}): ", default_runner_name).as_bytes())
+            .await
             .into_diagnostic()
             .wrap_err("Failed to write to stdout")?;
 
         stdout
             .flush()
+            .await
             .into_diagnostic()
-            .wrap_err("Failed to flush")?;
+            .wrap_err("Failed to flush stdout")?;
 
         stdin
-            .lock()
             .read_line(&mut buf)
+            .await
             .into_diagnostic()
-            .wrap_err("Failed to read from stdin")?;
+            .wrap_err("Failed to read stdin")?;
 
         let name = buf.trim().to_string();
         if name.is_empty() {
@@ -35,6 +37,7 @@ pub(crate) async fn runner_name() -> Result<String> {
             Err(e) => {
                 stdout
                     .write_all(format!("Invalid runner name: {}\n", e).as_bytes())
+                    .await
                     .into_diagnostic()
                     .wrap_err("Failed to write to stdout")?;
             }

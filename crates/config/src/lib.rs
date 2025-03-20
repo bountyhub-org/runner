@@ -11,7 +11,7 @@ use uuid::Uuid;
 pub const CONFIG_FILE: &str = ".runner";
 pub const RUNNER_VERSION: &str = env!("CARGO_PKG_VERSION");
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Debug)]
 pub struct ConfigManager {
     inner: Arc<tokio::sync::Mutex<Option<Config>>>,
 }

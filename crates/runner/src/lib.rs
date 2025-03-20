@@ -1,16 +1,15 @@
 use client::invoker::Client as InvokerClient;
-use client::runner::{JobAcquiredResponse, RunnerClient};
+use client::invoker::JobAcquiredResponse;
 use config::ConfigManager;
-use ctx::{Background, Ctx};
 use miette::{miette, IntoDiagnostic, Result};
 #[cfg(test)]
 use mockall::automock;
 use std::collections::BTreeMap;
-use std::fs;
 use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::sync::{Arc, RwLock};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
+use tokio::fs;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 use worker::Worker;
@@ -39,9 +38,9 @@ where
     }
 
     #[tracing::instrument(skip(self, client))]
-    pub async fn run(&self, client: InvokerClient) -> Result<()> {
+    pub async fn run(&self, ct: CancellationToken, client: InvokerClient) -> Result<()> {
         tracing::info!("Initializing working directory");
-        fs::create_dir_all(&self.config.read().unwrap().workdir)
+        fs::create_dir_all(&self.config.get().await?.workdir)
             .await
             .into_diagnostic()?;
 
