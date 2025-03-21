@@ -1957,6 +1957,7 @@ dependencies = [
  "time",
  "tracing",
  "uuid",
+ "zip",
 ]
 
 [[package]]
