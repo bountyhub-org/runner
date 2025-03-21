@@ -164,6 +164,26 @@ pub struct LogLine {
     pub line: String,
 }
 
+impl LogLine {
+    pub fn stdout(step_index: u32, line: &str) -> Self {
+        Self {
+            dst: LogDestination::Stdout,
+            step_index,
+            timestamp: OffsetDateTime::now_utc(),
+            line: line.to_string(),
+        }
+    }
+
+    pub fn stderr(step_index: u32, line: &str) -> Self {
+        Self {
+            dst: LogDestination::Stderr,
+            step_index,
+            timestamp: OffsetDateTime::now_utc(),
+            line: line.to_string(),
+        }
+    }
+}
+
 pub trait JobClient: Send + Sync + Clone + 'static {
     fn resolve(&self, ctx: Ctx<Background>) -> Result<JobResolvedResponse>;
     fn post_step_timeline(&self, ctx: Ctx<Background>, timeline: &TimelineRequest) -> Result<()>;

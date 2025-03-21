@@ -8,6 +8,7 @@ use std::{path::Path, sync::Arc};
 use steps::StepsRunner;
 
 pub mod execution_context;
+pub mod step;
 pub mod steps;
 
 #[derive(Clone)]
