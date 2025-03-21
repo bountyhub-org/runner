@@ -53,7 +53,7 @@ impl Worker for ShellWorker {
         let job_name = job.cfg.name.clone();
         tracing::info!("Received job {job_name}");
 
-        let execution_context = ExecutionContext::new(workdir, self.envs.clone(), job.cfg);
+        let mut execution_context = ExecutionContext::new(workdir, self.envs.clone(), job.cfg);
 
         for (index, step) in job.steps.iter().enumerate() {
             let tx = tx.clone();
@@ -102,6 +102,8 @@ impl Worker for ShellWorker {
                     step.run(tx).await
                 }
             };
+
+            execution_context.set_ok(result.wrap_err("Failed to run")?);
         }
 
         Ok(())
