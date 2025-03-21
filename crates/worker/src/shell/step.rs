@@ -32,7 +32,7 @@ where
             index: self.index,
             state: TimelineRequestStepState::Running,
         };
-        tracing::debug!("Setting setup step running: {timeline_request:?}");
+        tracing::debug!("Posting step state: {timeline_request:?}");
         self.worker_client
             .post_step_timeline(ctx.clone(), &timeline_request)
             .wrap_err("Failed to post step timeline")?;
@@ -109,9 +109,56 @@ where
             index: self.index,
             state: TimelineRequestStepState::Running,
         };
-        tracing::debug!("Setting setup step running: {timeline_request:?}");
+        tracing::debug!("Posting step state: {timeline_request:?}");
         self.worker_client
             .post_step_timeline(ctx.clone(), &timeline_request)
             .wrap_err("Failed to post step timeline")?;
+
+        tracing::debug!("Creating workdir '{workdir}'");
+        match fs::remove_dir_all(workdir) {
+            Ok(_) => {
+                let msg = format!("Sucessfully removed workdir '{workdir}'");
+                tracing::debug!("{msg}");
+                self.worker_client
+                    .send_job_logs(ctx.clone(), vec![LogLine::stdout(self.index, &msg)])
+                    .wrap_err("Failed to send logs")?;
+
+                let timeline_request = TimelineRequest {
+                    index: self.index,
+                    state: TimelineRequestStepState::Succeeded,
+                };
+                tracing::debug!("Posting step state: {timeline_request:?}");
+                self.worker_client
+                    .post_step_timeline(ctx.clone(), &timeline_request)
+                    .wrap_err("Failed to post step timeline")?;
+                tracing::debug!("Posted step state: {timeline_request:?}");
+
+                tracing::debug!("Posted setup step");
+                Ok(true)
+            }
+            Err(e) => {
+                let msg = format!("Failed to remove workdir '{workdir}': {e:?}");
+                tracing::debug!("{msg}");
+                self.worker_client
+                    .send_job_logs(ctx.clone(), vec![LogLine::stderr(self.index, &msg)])
+                    .wrap_err("Failed to send logs")?;
+
+                let timeline_request = TimelineRequest {
+                    index: self.index,
+                    state: TimelineRequestStepState::Failed {
+                        outcome: TimelineRequestStepOutcome::Failed,
+                    },
+                };
+
+                tracing::debug!("Posting step state: {timeline_request:?}");
+                self.worker_client
+                    .post_step_timeline(ctx.clone(), &timeline_request)
+                    .wrap_err("Failed to post step timeline")?;
+                tracing::debug!("Posted step state: {timeline_request:?}");
+
+                tracing::debug!("Posted setup step");
+                Ok(false)
+            }
+        }
     }
 }
