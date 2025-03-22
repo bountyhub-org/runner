@@ -24,9 +24,9 @@ pub struct SetupStep<'a, C>
 where
     C: JobClient,
 {
-    index: u32,
-    context: &'a ExecutionContext,
-    worker_client: C,
+    pub index: u32,
+    pub context: &'a ExecutionContext,
+    pub worker_client: C,
 }
 
 impl<C> Step for SetupStep<'_, C>
@@ -53,7 +53,7 @@ where
                 let msg = format!("Sucessfully created workdir '{workdir}'");
                 tracing::debug!("{msg}");
                 self.worker_client
-                    .send_job_logs(ctx.clone(), &vec![LogLine::stdout(self.index, &msg)])
+                    .send_job_logs(ctx.clone(), &[LogLine::stdout(self.index, &msg)])
                     .wrap_err("Failed to send logs")?;
 
                 let timeline_request = TimelineRequest {
@@ -73,7 +73,7 @@ where
                 let msg = format!("Failed to create workdir '{workdir}': {e:?}");
                 tracing::debug!("{msg}");
                 self.worker_client
-                    .send_job_logs(ctx.clone(), &vec![LogLine::stderr(self.index, &msg)])
+                    .send_job_logs(ctx.clone(), &[LogLine::stderr(self.index, &msg)])
                     .wrap_err("Failed to send logs")?;
 
                 let timeline_request = TimelineRequest {
@@ -101,9 +101,9 @@ pub struct TeardownStep<'a, C>
 where
     C: JobClient,
 {
-    index: u32,
-    context: &'a ExecutionContext,
-    worker_client: C,
+    pub index: u32,
+    pub context: &'a ExecutionContext,
+    pub worker_client: C,
 }
 
 impl<C> Step for TeardownStep<'_, C>
@@ -130,7 +130,7 @@ where
                 let msg = format!("Sucessfully removed workdir '{workdir}'");
                 tracing::debug!("{msg}");
                 self.worker_client
-                    .send_job_logs(ctx.clone(), &vec![LogLine::stdout(self.index, &msg)])
+                    .send_job_logs(ctx.clone(), &[LogLine::stdout(self.index, &msg)])
                     .wrap_err("Failed to send logs")?;
 
                 let timeline_request = TimelineRequest {
@@ -150,7 +150,7 @@ where
                 let msg = format!("Failed to remove workdir '{workdir}': {e:?}");
                 tracing::debug!("{msg}");
                 self.worker_client
-                    .send_job_logs(ctx.clone(), &vec![LogLine::stderr(self.index, &msg)])
+                    .send_job_logs(ctx.clone(), &[LogLine::stderr(self.index, &msg)])
                     .wrap_err("Failed to send logs")?;
 
                 let timeline_request = TimelineRequest {
@@ -310,10 +310,13 @@ where
                         thread::sleep(Duration::from_millis(250));
                         continue;
                     }
-                    log_tx.send(LogLine::stderr(
-                        index,
-                        "Received cancellation signal. Killing child process",
-                    ));
+                    log_tx
+                        .send(LogLine::stderr(
+                            index,
+                            "Received cancellation signal. Killing child process",
+                        ))
+                        .into_diagnostic()
+                        .wrap_err("Failed to send the log line")?;
                     tracing::info!("Received cancellation signal. Killing child process");
                     if let Err(err) = child.kill() {
                         tracing::error!("Failed to kill child process: {}. Command might still execute in the background", err);
@@ -335,7 +338,10 @@ where
                 Err(e) => {
                     let msg = format!("Failed to wait for child process: {e:?}");
                     tracing::error!("{msg}");
-                    log_tx.send(LogLine::stderr(index, &msg));
+                    log_tx
+                        .send(LogLine::stderr(index, &msg))
+                        .into_diagnostic()
+                        .wrap_err("Failed to send the stderr line")?;
 
                     let timeline_request = TimelineRequest {
                         index: self.index,
@@ -388,9 +394,15 @@ where
             }
         };
 
-        stdout_handle.join().expect("Failed to join stdout handle");
-        stderr_handle.join().expect("Failed to join stderr handle");
-        log_pusher.join().expect("Failed to join log pusher handle");
+        if let Err(e) = stdout_handle.join().expect("Failed to join stdout handle") {
+            tracing::error!("Stdout handle returned an error, trying to move on: {e:?}");
+        };
+        if let Err(e) = stderr_handle.join().expect("Failed to join stderr handle") {
+            tracing::error!("Stderr handle returned an error, trying to move on: {e:?}");
+        };
+        if let Err(e) = log_pusher.join().expect("Failed to join log pusher handle") {
+            tracing::error!("Pushing logs returned an error, trying to move on: {e:?}");
+        };
 
         Ok(ok)
     }
@@ -438,7 +450,7 @@ where
                 let msg = format!("Failed to evaluate the if condition: '{}'", self.cond);
                 tracing::debug!("{msg}");
                 self.worker_client
-                    .send_job_logs(ctx.clone(), &vec![LogLine::stderr(self.index, &msg)])
+                    .send_job_logs(ctx.clone(), &[LogLine::stderr(self.index, &msg)])
                     .wrap_err("Failed to send logs")?;
 
                 let timeline_request = TimelineRequest {
@@ -465,7 +477,7 @@ where
                 let msg = format!("Failed to split the shell {}", self.shell);
                 tracing::debug!("{msg}");
                 self.worker_client
-                    .send_job_logs(ctx.clone(), &vec![LogLine::stderr(self.index, &msg)])
+                    .send_job_logs(ctx.clone(), &[LogLine::stderr(self.index, &msg)])
                     .wrap_err("Failed to send logs")?;
 
                 let timeline_request = TimelineRequest {
@@ -495,7 +507,7 @@ where
                 let msg = format!("Failed to evaluate the template: {e:?}");
                 tracing::debug!("{msg}");
                 self.worker_client
-                    .send_job_logs(ctx.clone(), &vec![LogLine::stderr(self.index, &msg)])
+                    .send_job_logs(ctx.clone(), &[LogLine::stderr(self.index, &msg)])
                     .wrap_err("Failed to send logs")?;
 
                 let timeline_request = TimelineRequest {
