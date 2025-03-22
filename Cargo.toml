@@ -9,7 +9,6 @@ members = [
     "crates/runner",
     "crates/worker",
     "crates/templ",
-    "crates/artifact",
     "crates/jobengine",
 ]
 

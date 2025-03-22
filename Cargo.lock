@@ -97,17 +97,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "artifact"
-version = "0.4.0"
-dependencies = [
- "ctx",
- "miette",
- "tracing",
- "uuid",
- "zip",
-]
-
-[[package]]
 name = "backtrace"
 version = "0.3.74"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1946,7 +1935,6 @@ dependencies = [
 name = "worker"
 version = "0.4.0"
 dependencies = [
- "artifact",
  "cellang",
  "client",
  "ctx",

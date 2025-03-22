@@ -18,7 +18,6 @@ time = "^0.3"
 zip = "2"
 client = { path = "../client" }
 ctx = { path = "../ctx" }
-artifact = { path = "../artifact" }
 jobengine = { path = "../jobengine" }
 
 [dev-dependencies]
