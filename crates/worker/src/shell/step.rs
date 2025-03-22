@@ -279,25 +279,33 @@ where
         let log_pusher: JoinHandle<Result<()>> = thread::spawn(move || {
             let mut buf = Vec::with_capacity(100);
 
-            loop {
+            let mut done = false;
+            while !done {
                 buf.clear();
-                thread::sleep(Duration::from_secs(1));
                 for _ in 0..100 {
                     match log_rx.try_recv() {
                         Ok(line) => buf.push(line),
-                        Err(TryRecvError::Empty) => break,
+                        Err(TryRecvError::Empty) => {
+                            done = true;
+                            break;
+                        }
                         Err(TryRecvError::Disconnected) => return Ok(()),
                     }
                 }
 
                 if buf.is_empty() {
+                    thread::sleep(Duration::from_secs(1));
                     continue;
                 }
 
                 worker_client
                     .send_job_logs(log_ctx.clone(), &buf)
                     .wrap_err("Failed to send job log")?;
+
+                thread::sleep(Duration::from_secs(1));
             }
+
+            Ok(())
         });
 
         tracing::info!("Waiting for command to finish");
@@ -394,12 +402,17 @@ where
             }
         };
 
+        tracing::debug!("Waiting stdout handle to be joined");
         if let Err(e) = stdout_handle.join().expect("Failed to join stdout handle") {
             tracing::error!("Stdout handle returned an error, trying to move on: {e:?}");
         };
+
+        tracing::debug!("Waiting stderr handle to be joined");
         if let Err(e) = stderr_handle.join().expect("Failed to join stderr handle") {
             tracing::error!("Stderr handle returned an error, trying to move on: {e:?}");
         };
+
+        tracing::debug!("Waiting log pusher handle to be joined");
         if let Err(e) = log_pusher.join().expect("Failed to join log pusher handle") {
             tracing::error!("Pushing logs returned an error, trying to move on: {e:?}");
         };
