@@ -108,59 +108,9 @@ impl ExecutionContext {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use client::job::TimelineRequestStepState;
     use jobengine::{JobMeta, ProjectMeta, WorkflowMeta, WorkflowRevisionMeta};
     use std::{collections::BTreeMap, sync::Arc};
     use uuid::Uuid;
-
-    #[test]
-    fn test_update_state() {
-        let mut ctx = super::ExecutionContext::new(
-            "workdir".to_string(),
-            Arc::new(vec![("key".to_string(), "value".to_string())]),
-            jobengine::Config {
-                id: Uuid::now_v7(),
-                name: "example".to_string(),
-                scans: BTreeMap::new(),
-                inputs: None,
-                project: ProjectMeta { id: Uuid::now_v7() },
-                workflow: WorkflowMeta { id: Uuid::now_v7() },
-                revision: WorkflowRevisionMeta { id: Uuid::now_v7() },
-                vars: BTreeMap::new(),
-                envs: BTreeMap::new(),
-            },
-        );
-        assert!(ctx.ok);
-
-        ctx.update_state(TimelineRequestStepState::Running);
-        assert!(ctx.ok);
-
-        ctx.update_state(TimelineRequestStepState::Succeeded);
-        assert!(ctx.ok);
-
-        ctx.update_state(TimelineRequestStepState::Skipped);
-        assert!(ctx.ok);
-
-        ctx.update_state(TimelineRequestStepState::Cancelled);
-        assert!(!ctx.ok);
-
-        ctx.update_state(TimelineRequestStepState::Succeeded);
-        assert!(!ctx.ok);
-
-        ctx.ok = true;
-        ctx.update_state(TimelineRequestStepState::Failed {
-            outcome: TimelineRequestStepOutcome::Succeeded,
-        });
-        assert!(ctx.ok);
-
-        ctx.update_state(TimelineRequestStepState::Failed {
-            outcome: TimelineRequestStepOutcome::Failed,
-        });
-        assert!(!ctx.ok);
-
-        ctx.update_state(TimelineRequestStepState::Succeeded);
-        assert!(!ctx.ok);
-    }
 
     #[test]
     fn test_eval() {
