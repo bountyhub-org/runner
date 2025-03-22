@@ -737,11 +737,25 @@ mod tests {
     use jobengine::{ProjectMeta, WorkflowMeta, WorkflowRevisionMeta};
     use std::{collections::BTreeMap, env, sync::Arc};
 
-    fn new_test_workdir() -> String {
-        env::temp_dir()
-            .join(Uuid::new_v4().to_string())
-            .to_string_lossy()
-            .to_string()
+    struct TestDir {
+        dir: String,
+    }
+
+    impl Drop for TestDir {
+        fn drop(&mut self) {
+            if let Err(e) = fs::remove_dir_all(&self.dir) {
+                eprintln!("Failed to remove test directory: {e:?}");
+            }
+        }
+    }
+
+    fn new_test_workdir() -> TestDir {
+        TestDir {
+            dir: env::temp_dir()
+                .join(Uuid::new_v4().to_string())
+                .to_string_lossy()
+                .to_string(),
+        }
     }
 
     #[test]
@@ -801,7 +815,8 @@ mod tests {
             inputs: None,
         };
 
-        let context = ExecutionContext::new(new_test_workdir(), Arc::new(vec![]), config);
+        let test_dir = new_test_workdir();
+        let context = ExecutionContext::new(test_dir.dir.clone(), Arc::new(vec![]), config);
 
         let setup_step = SetupStep {
             index: 0,
@@ -814,5 +829,10 @@ mod tests {
             .expect("want setup step run to be ok, got error");
 
         assert!(result);
+    }
+
+    #[test]
+    fn test_teardown_step() {
+        l
     }
 }
