@@ -729,3 +729,90 @@ where
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use client::job::{LogDestination, MockJobClient};
+    use jobengine::{ProjectMeta, WorkflowMeta, WorkflowRevisionMeta};
+    use std::{collections::BTreeMap, env, sync::Arc};
+
+    fn new_test_workdir() -> String {
+        env::temp_dir()
+            .join(Uuid::new_v4().to_string())
+            .to_string_lossy()
+            .to_string()
+    }
+
+    #[test]
+    fn test_setup_step() {
+        let mut job_client = MockJobClient::new();
+        job_client
+            .expect_post_step_timeline()
+            .returning(move |_, timeline| {
+                assert_eq!(timeline.index, 0, "{:?}", timeline);
+                assert!(
+                    matches!(timeline.state, TimelineRequestStepState::Running),
+                    "{:?}",
+                    timeline
+                );
+                Ok(())
+            })
+            .once();
+
+        job_client
+            .expect_post_step_timeline()
+            .returning(move |_, timeline| {
+                assert_eq!(timeline.index, 0, "{:?}", timeline);
+                assert!(
+                    matches!(timeline.state, TimelineRequestStepState::Succeeded),
+                    "{:?}",
+                    timeline
+                );
+                Ok(())
+            })
+            .once();
+
+        job_client
+            .expect_send_job_logs()
+            .returning(|_, log| {
+                assert_eq!(log.len(), 1);
+                assert!(matches!(
+                    log[0],
+                    LogLine {
+                        dst: LogDestination::Stdout,
+                        step_index: 0,
+                        ..
+                    }
+                ));
+                Ok(())
+            })
+            .once();
+
+        let config = jobengine::Config {
+            id: Uuid::now_v7(),
+            name: "example".to_string(),
+            scans: BTreeMap::new(),
+            project: ProjectMeta { id: Uuid::now_v7() },
+            workflow: WorkflowMeta { id: Uuid::now_v7() },
+            revision: WorkflowRevisionMeta { id: Uuid::now_v7() },
+            vars: BTreeMap::new(),
+            envs: BTreeMap::new(),
+            inputs: None,
+        };
+
+        let context = ExecutionContext::new(new_test_workdir(), Arc::new(vec![]), config);
+
+        let setup_step = SetupStep {
+            index: 0,
+            context: &context,
+            worker_client: job_client,
+        };
+
+        let result = setup_step
+            .run(ctx::background())
+            .expect("want setup step run to be ok, got error");
+
+        assert!(result);
+    }
+}
