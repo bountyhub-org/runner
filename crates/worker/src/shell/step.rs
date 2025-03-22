@@ -1,10 +1,16 @@
 use super::execution_context::ExecutionContext;
+use cellang::Value;
 use client::job::{JobClient, TimelineRequest, TimelineRequestStepOutcome};
 use client::job::{LogLine, TimelineRequestStepState};
 use ctx::{Background, Ctx};
 use miette::{bail, IntoDiagnostic, Result, WrapErr};
-use std::fs;
+use std::io::{BufRead, BufReader};
 use std::path::{Component, Path, PathBuf};
+use std::process::{Command, Stdio};
+use std::sync::mpsc::{self, TryRecvError};
+use std::thread::JoinHandle;
+use std::time::Duration;
+use std::{fs, thread};
 use uuid::Uuid;
 use zip::write::{FileOptionExtension, FileOptions, SimpleFileOptions};
 use zip::ZipWriter;
@@ -47,7 +53,7 @@ where
                 let msg = format!("Sucessfully created workdir '{workdir}'");
                 tracing::debug!("{msg}");
                 self.worker_client
-                    .send_job_logs(ctx.clone(), vec![LogLine::stdout(self.index, &msg)])
+                    .send_job_logs(ctx.clone(), &vec![LogLine::stdout(self.index, &msg)])
                     .wrap_err("Failed to send logs")?;
 
                 let timeline_request = TimelineRequest {
@@ -67,7 +73,7 @@ where
                 let msg = format!("Failed to create workdir '{workdir}': {e:?}");
                 tracing::debug!("{msg}");
                 self.worker_client
-                    .send_job_logs(ctx.clone(), vec![LogLine::stderr(self.index, &msg)])
+                    .send_job_logs(ctx.clone(), &vec![LogLine::stderr(self.index, &msg)])
                     .wrap_err("Failed to send logs")?;
 
                 let timeline_request = TimelineRequest {
@@ -124,7 +130,7 @@ where
                 let msg = format!("Sucessfully removed workdir '{workdir}'");
                 tracing::debug!("{msg}");
                 self.worker_client
-                    .send_job_logs(ctx.clone(), vec![LogLine::stdout(self.index, &msg)])
+                    .send_job_logs(ctx.clone(), &vec![LogLine::stdout(self.index, &msg)])
                     .wrap_err("Failed to send logs")?;
 
                 let timeline_request = TimelineRequest {
@@ -144,7 +150,7 @@ where
                 let msg = format!("Failed to remove workdir '{workdir}': {e:?}");
                 tracing::debug!("{msg}");
                 self.worker_client
-                    .send_job_logs(ctx.clone(), vec![LogLine::stderr(self.index, &msg)])
+                    .send_job_logs(ctx.clone(), &vec![LogLine::stderr(self.index, &msg)])
                     .wrap_err("Failed to send logs")?;
 
                 let timeline_request = TimelineRequest {
@@ -162,6 +168,368 @@ where
 
                 tracing::debug!("Posted setup step");
                 Ok(false)
+            }
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct CommandStep<'a, C> {
+    pub index: u32,
+    pub context: &'a ExecutionContext,
+    pub worker_client: C,
+    pub cond: &'a str,
+    pub run: &'a str,
+    pub shell: &'a str,
+    pub allow_failed: bool,
+}
+
+impl<C> Step for CommandStep<'_, C>
+where
+    C: JobClient,
+{
+    fn run(&self, ctx: Ctx<Background>) -> Result<bool> {
+        if !self
+            .should_run(ctx.clone())
+            .wrap_err("Eval condition succeeded")?
+        {
+            // even if shell is false, ok should be true
+            return Ok(true);
+        }
+
+        let mut cmd = self
+            .split_shell(ctx.clone())
+            .wrap_err("Failed to split the shell")?;
+
+        let script_path = self
+            .write_scipt(ctx.clone())
+            .wrap_err("Failed to write script")?;
+
+        cmd.push(
+            script_path
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .to_string(),
+        );
+
+        let binary = cmd.remove(0);
+        let args = cmd;
+        let mut cmd = Command::new(binary);
+        cmd.args(args);
+        cmd.current_dir(self.context.workdir());
+        cmd.envs(self.context.envs().iter().cloned());
+        cmd.stdout(Stdio::piped());
+        cmd.stderr(Stdio::piped());
+
+        tracing::debug!("Spawning command: {cmd:?}");
+        let mut child = match cmd.spawn() {
+            Ok(child) => child,
+            Err(err) => {
+                tracing::error!("Failed to spawn child process: {err:?}");
+                let timeline_request = TimelineRequest {
+                    index: self.index,
+                    state: self.fail_state(),
+                };
+
+                tracing::debug!("Posting step state: {timeline_request:?}");
+                self.worker_client
+                    .post_step_timeline(ctx.clone(), &timeline_request)
+                    .wrap_err("Failed to post step timeline")?;
+
+                return Ok(self.allow_failed);
+            }
+        };
+
+        let stdout = child.stdout.take().expect("Failed to open stdout");
+        let stderr = child.stderr.take().expect("Failed to open stderr");
+
+        let (log_tx, log_rx) = mpsc::sync_channel(100);
+
+        let stdout_tx = log_tx.clone();
+        let index = self.index;
+        let stdout_handle = thread::spawn(move || {
+            let lines = BufReader::new(stdout).lines();
+            for line in lines {
+                let line = line.unwrap();
+                if let Err(e) = stdout_tx.send(LogLine::stdout(index, &line)) {
+                    tracing::error!("Failed to send stdout to channel, stopping the stream: {e:?}");
+                    bail!("stdout send failed");
+                };
+            }
+            Ok(())
+        });
+
+        let stderr_tx = log_tx.clone();
+        let index = self.index;
+        let stderr_handle = thread::spawn(move || {
+            let lines = BufReader::new(stderr).lines();
+            for line in lines {
+                let line = line.unwrap();
+                if let Err(e) = stderr_tx.send(LogLine::stderr(index, &line)) {
+                    tracing::error!("Failed to send stderr to channel, stopping the stream: {e:?}");
+                    bail!("stderr send failed");
+                };
+            }
+            Ok(())
+        });
+
+        let log_ctx = ctx.clone();
+        let worker_client = self.worker_client.clone();
+        let log_pusher: JoinHandle<Result<()>> = thread::spawn(move || {
+            let mut buf = Vec::with_capacity(100);
+
+            loop {
+                buf.clear();
+                thread::sleep(Duration::from_secs(1));
+                for _ in 0..100 {
+                    match log_rx.try_recv() {
+                        Ok(line) => buf.push(line),
+                        Err(TryRecvError::Empty) => break,
+                        Err(TryRecvError::Disconnected) => return Ok(()),
+                    }
+                }
+
+                if buf.is_empty() {
+                    continue;
+                }
+
+                worker_client
+                    .send_job_logs(log_ctx.clone(), &buf)
+                    .wrap_err("Failed to send job log")?;
+            }
+        });
+
+        tracing::info!("Waiting for command to finish");
+        let index = self.index;
+        loop {
+            match child.try_wait() {
+                Ok(Some(_)) => break,
+                Ok(None) => {
+                    if !ctx.is_done() {
+                        thread::sleep(Duration::from_millis(250));
+                        continue;
+                    }
+                    log_tx.send(LogLine::stderr(
+                        index,
+                        "Received cancellation signal. Killing child process",
+                    ));
+                    tracing::info!("Received cancellation signal. Killing child process");
+                    if let Err(err) = child.kill() {
+                        tracing::error!("Failed to kill child process: {}. Command might still execute in the background", err);
+                    } else {
+                        tracing::info!("Killed child process");
+                    }
+
+                    let timeline_request = TimelineRequest {
+                        index: self.index,
+                        state: TimelineRequestStepState::Skipped,
+                    };
+                    tracing::debug!("Posting step state: {timeline_request:?}");
+                    self.worker_client
+                        .post_step_timeline(ctx.clone(), &timeline_request)
+                        .wrap_err("Failed to post step timeline")?;
+
+                    return Ok(false);
+                }
+                Err(e) => {
+                    let msg = format!("Failed to wait for child process: {e:?}");
+                    tracing::error!("{msg}");
+                    log_tx.send(LogLine::stderr(index, &msg));
+
+                    let timeline_request = TimelineRequest {
+                        index: self.index,
+                        state: self.fail_state(),
+                    };
+
+                    tracing::debug!("Posting step state: {timeline_request:?}");
+                    self.worker_client
+                        .post_step_timeline(ctx.clone(), &timeline_request)
+                        .wrap_err("Failed to post step timeline")?;
+
+                    return Ok(self.allow_failed);
+                }
+            }
+        }
+
+        let ok = match child.wait() {
+            Ok(out) => {
+                let code = out.code().unwrap_or(1);
+                let ok = code == 0;
+                let timeline_request = TimelineRequest {
+                    index: self.index,
+                    state: if ok {
+                        TimelineRequestStepState::Succeeded
+                    } else {
+                        self.fail_state()
+                    },
+                };
+
+                tracing::debug!("Posting step state: {timeline_request:?}");
+                self.worker_client
+                    .post_step_timeline(ctx.clone(), &timeline_request)
+                    .wrap_err("Failed to post step timeline")?;
+
+                ok || self.allow_failed
+            }
+            Err(e) => {
+                tracing::error!("Failed to wait child process: {e:?}");
+                let timeline_request = TimelineRequest {
+                    index: self.index,
+                    state: self.fail_state(),
+                };
+
+                tracing::debug!("Posting step state: {timeline_request:?}");
+                self.worker_client
+                    .post_step_timeline(ctx.clone(), &timeline_request)
+                    .wrap_err("Failed to post step timeline")?;
+
+                self.allow_failed
+            }
+        };
+
+        stdout_handle.join().expect("Failed to join stdout handle");
+        stderr_handle.join().expect("Failed to join stderr handle");
+        log_pusher.join().expect("Failed to join log pusher handle");
+
+        Ok(ok)
+    }
+}
+
+impl<C> CommandStep<'_, C>
+where
+    C: JobClient,
+{
+    #[tracing::instrument(skip(self, ctx))]
+    fn should_run(&self, ctx: Ctx<Background>) -> Result<bool> {
+        tracing::debug!("Testing the condition");
+        match self
+            .context
+            .eval_expr(self.cond)
+            .wrap_err("Condition evaluation failed")?
+        {
+            Value::Bool(false) => {
+                tracing::debug!("Condition evaluated to false");
+
+                let timeline_request = TimelineRequest {
+                    index: self.index,
+                    state: TimelineRequestStepState::Skipped,
+                };
+                tracing::debug!("Posting step state: {timeline_request:?}");
+                self.worker_client
+                    .post_step_timeline(ctx.clone(), &timeline_request)
+                    .wrap_err("Failed to post step timeline")?;
+
+                Ok(false)
+            }
+            Value::Bool(true) => {
+                let timeline_request = TimelineRequest {
+                    index: self.index,
+                    state: TimelineRequestStepState::Running,
+                };
+                tracing::debug!("Posting step state: {timeline_request:?}");
+                self.worker_client
+                    .post_step_timeline(ctx.clone(), &timeline_request)
+                    .wrap_err("Failed to post step timeline")?;
+
+                Ok(true)
+            }
+            v => {
+                let msg = format!("Failed to evaluate the if condition: '{}'", self.cond);
+                tracing::debug!("{msg}");
+                self.worker_client
+                    .send_job_logs(ctx.clone(), &vec![LogLine::stderr(self.index, &msg)])
+                    .wrap_err("Failed to send logs")?;
+
+                let timeline_request = TimelineRequest {
+                    index: self.index,
+                    state: TimelineRequestStepState::Failed {
+                        outcome: TimelineRequestStepOutcome::Failed,
+                    },
+                };
+                tracing::debug!("Posting step state: {timeline_request:?}");
+                self.worker_client
+                    .post_step_timeline(ctx.clone(), &timeline_request)
+                    .wrap_err("Failed to post step timeline")?;
+                bail!("Condition evaluated to value {v:?}, expected bool")
+            }
+        }
+    }
+
+    #[tracing::instrument(skip(self, ctx))]
+    fn split_shell(&self, ctx: Ctx<Background>) -> Result<Vec<String>> {
+        tracing::debug!("Shell split: {}", self.shell);
+        match shlex::split(self.shell) {
+            Some(cmd) => Ok(cmd),
+            None => {
+                let msg = format!("Failed to split the shell {}", self.shell);
+                tracing::debug!("{msg}");
+                self.worker_client
+                    .send_job_logs(ctx.clone(), &vec![LogLine::stderr(self.index, &msg)])
+                    .wrap_err("Failed to send logs")?;
+
+                let timeline_request = TimelineRequest {
+                    index: self.index,
+                    state: TimelineRequestStepState::Failed {
+                        outcome: TimelineRequestStepOutcome::Failed,
+                    },
+                };
+                tracing::debug!("Posting step state: {timeline_request:?}");
+                self.worker_client
+                    .post_step_timeline(ctx.clone(), &timeline_request)
+                    .wrap_err("Failed to post step timeline")?;
+
+                bail!(msg)
+            }
+        }
+    }
+
+    #[tracing::instrument(skip(self, ctx))]
+    fn write_scipt(&self, ctx: Ctx<Background>) -> Result<PathBuf> {
+        tracing::debug!("Writing script");
+
+        tracing::debug!("Evaluating code template");
+        let script = match self.context.eval_templ(self.run) {
+            Ok(s) => s,
+            Err(e) => {
+                let msg = format!("Failed to evaluate the template: {e:?}");
+                tracing::debug!("{msg}");
+                self.worker_client
+                    .send_job_logs(ctx.clone(), &vec![LogLine::stderr(self.index, &msg)])
+                    .wrap_err("Failed to send logs")?;
+
+                let timeline_request = TimelineRequest {
+                    index: self.index,
+                    state: TimelineRequestStepState::Failed {
+                        outcome: TimelineRequestStepOutcome::Failed,
+                    },
+                };
+                tracing::debug!("Posting step state: {timeline_request:?}");
+                self.worker_client
+                    .post_step_timeline(ctx.clone(), &timeline_request)
+                    .wrap_err("Failed to post step timeline")?;
+
+                bail!(msg)
+            }
+        };
+
+        let file_path = Path::new(self.context.workdir()).join(Uuid::new_v4().to_string());
+
+        fs::write(&file_path, script)
+            .into_diagnostic()
+            .wrap_err("Failed to write file")?;
+
+        Ok(file_path)
+    }
+
+    fn fail_state(&self) -> TimelineRequestStepState {
+        if self.allow_failed {
+            TimelineRequestStepState::Failed {
+                outcome: TimelineRequestStepOutcome::Succeeded,
+            }
+        } else {
+            TimelineRequestStepState::Failed {
+                outcome: TimelineRequestStepOutcome::Failed,
             }
         }
     }
