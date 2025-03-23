@@ -560,9 +560,26 @@ where
 
         let file_path = Path::new(self.context.job_dir()).join(Uuid::new_v4().to_string());
 
-        fs::write(&file_path, script)
-            .into_diagnostic()
-            .wrap_err("Failed to write file")?;
+        if let Err(e) = fs::write(&file_path, script) {
+            let msg = format!("Failed to create script file: {e:?}");
+            tracing::debug!("{msg}");
+            self.worker_client
+                .send_job_logs(ctx.clone(), &[LogLine::stderr(self.index, &msg)])
+                .wrap_err("Failed to send logs")?;
+
+            let timeline_request = TimelineRequest {
+                index: self.index,
+                state: TimelineRequestStepState::Failed {
+                    outcome: TimelineRequestStepOutcome::Failed,
+                },
+            };
+            tracing::debug!("Posting step state: {timeline_request:?}");
+            self.worker_client
+                .post_step_timeline(ctx.clone(), &timeline_request)
+                .wrap_err("Failed to post step timeline")?;
+
+            bail!(msg)
+        }
 
         Ok(file_path)
     }
@@ -989,7 +1006,7 @@ mod tests {
 
     #[test]
     fn test_command_step_split_shell_ok() {
-        let mut job_client = MockJobClient::new();
+        let job_client = MockJobClient::new();
 
         let config = new_jobengine_context("example");
 
@@ -1013,5 +1030,138 @@ mod tests {
         assert_eq!(v.len(), 2);
         assert_eq!(v[0], "bash");
         assert_eq!(v[1], "-x");
+    }
+
+    #[test]
+    fn test_command_step_write_script_ok() {
+        let job_client = MockJobClient::new();
+
+        let config = new_jobengine_context("example");
+
+        let test_dir = new_test_workdir();
+        let context = ExecutionContext::new(test_dir.dir.clone(), Arc::new(vec![]), config);
+
+        fs::create_dir_all(context.job_dir()).expect("job dir to be set");
+
+        let command_step = CommandStep {
+            index: 1,
+            context: &context,
+            worker_client: job_client,
+            cond: "ok",
+            run: "echo 'test'",
+            shell: "bash -x",
+            allow_failed: true, // outcome should still be failed since this is a precondition
+        };
+
+        let result = command_step
+            .write_scipt(ctx::background())
+            .expect("want ok");
+
+        assert!(result.exists());
+        let script = fs::read_to_string(result).expect("read should be ok");
+        assert_eq!(command_step.run, script);
+    }
+
+    #[test]
+    fn test_command_step_write_script_fail() {
+        let mut job_client = MockJobClient::new();
+
+        job_client
+            .expect_post_step_timeline()
+            .returning(move |_, timeline| {
+                assert_eq!(timeline.index, 1, "{:?}", timeline);
+                assert!(
+                    matches!(
+                        timeline.state,
+                        TimelineRequestStepState::Failed {
+                            outcome: TimelineRequestStepOutcome::Failed
+                        }
+                    ),
+                    "{:?}",
+                    timeline
+                );
+                Ok(())
+            })
+            .once();
+
+        job_client
+            .expect_send_job_logs()
+            .returning(|_, log| {
+                assert_eq!(log.len(), 1);
+                assert!(matches!(
+                    log[0],
+                    LogLine {
+                        dst: LogDestination::Stderr,
+                        step_index: 1,
+                        ..
+                    }
+                ));
+                Ok(())
+            })
+            .once();
+
+        let config = new_jobengine_context("example");
+
+        let test_dir = new_test_workdir();
+        let context = ExecutionContext::new(test_dir.dir.clone(), Arc::new(vec![]), config);
+
+        // directory doesn't exist. Want to make write to fail
+
+        let command_step = CommandStep {
+            index: 1,
+            context: &context,
+            worker_client: job_client,
+            cond: "ok",
+            run: "echo 'test'",
+            shell: "bash -x",
+            allow_failed: true, // outcome should still be failed since this is a precondition
+        };
+
+        let result = command_step.write_scipt(ctx::background());
+        assert!(result.is_err(), "Expectet error, got ok: {result:?}");
+    }
+
+    #[test]
+    fn test_command_step_fail_state() {
+        // I know this is an overkill and other way of writing fail_state, but if
+        // something shitty happens, want to have this covered, and the test is quite
+        // easy to write
+        let config = new_jobengine_context("example");
+
+        let test_dir = new_test_workdir();
+        let context = ExecutionContext::new(test_dir.dir.clone(), Arc::new(vec![]), config);
+        let command_step = CommandStep {
+            index: 1,
+            context: &context,
+            worker_client: MockJobClient::new(),
+            cond: "ok",
+            run: "echo 'test'",
+            shell: "bash -x",
+            allow_failed: true, // outcome should still be failed since this is a precondition
+        };
+
+        assert!(matches!(
+            command_step.fail_state(),
+            TimelineRequestStepState::Failed {
+                outcome: TimelineRequestStepOutcome::Succeeded
+            }
+        ));
+
+        let command_step = CommandStep {
+            index: 1,
+            context: &context,
+            worker_client: MockJobClient::new(),
+            cond: "ok",
+            run: "echo 'test'",
+            shell: "bash -x",
+            allow_failed: false, // outcome should still be failed since this is a precondition
+        };
+
+        assert!(matches!(
+            command_step.fail_state(),
+            TimelineRequestStepState::Failed {
+                outcome: TimelineRequestStepOutcome::Failed
+            }
+        ));
     }
 }
