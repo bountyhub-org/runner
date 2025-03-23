@@ -122,7 +122,7 @@ mod tests {
     use uuid::Uuid;
 
     #[test]
-    fn test_eval() {
+    fn test_eval_from_setup() {
         let job_config = jobengine::Config {
             id: Uuid::now_v7(),
             name: "example".to_string(),
@@ -184,6 +184,48 @@ mod tests {
             ctx.eval_expr("id").unwrap(),
             CelValue::String(job_config.id.to_string())
         );
+    }
+
+    #[test]
+    fn test_eval_set_ok() {
+        let job_config = jobengine::Config {
+            id: Uuid::now_v7(),
+            name: "example".to_string(),
+            scans: {
+                let mut m = BTreeMap::new();
+                m.insert(
+                    "example".to_string(),
+                    vec![JobMeta {
+                        id: Uuid::now_v7(),
+                        state: "succeeded".to_string(),
+                        nonce: Some("nonce:example".to_string()),
+                    }],
+                );
+                m
+            },
+            inputs: None,
+            project: ProjectMeta { id: Uuid::now_v7() },
+            workflow: WorkflowMeta { id: Uuid::now_v7() },
+            revision: WorkflowRevisionMeta { id: Uuid::now_v7() },
+            vars: {
+                let mut m = BTreeMap::new();
+                m.insert("key".to_string(), "value".to_string());
+                m
+            },
+            envs: BTreeMap::new(),
+        };
+
+        let mut ctx = super::ExecutionContext::new(
+            "workdir".to_string(),
+            Arc::new(vec![("key".to_string(), "value".to_string())]),
+            job_config.clone(),
+        );
+
+        assert_eq!(ctx.eval_expr("ok").unwrap(), CelValue::Bool(true));
+
+        ctx.set_ok(false);
+
+        assert_eq!(ctx.eval_expr("ok").unwrap(), CelValue::Bool(false));
     }
 
     #[test]
