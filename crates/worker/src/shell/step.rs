@@ -428,12 +428,8 @@ where
     #[tracing::instrument(skip(self, ctx))]
     fn should_run(&self, ctx: Ctx<Background>) -> Result<bool> {
         tracing::debug!("Testing the condition");
-        match self
-            .context
-            .eval_expr(self.cond)
-            .wrap_err("Condition evaluation failed")?
-        {
-            Value::Bool(false) => {
+        match self.context.eval_expr(self.cond) {
+            Ok(Value::Bool(false)) => {
                 tracing::debug!("Condition evaluated to false");
 
                 let timeline_request = TimelineRequest {
@@ -447,7 +443,7 @@ where
 
                 Ok(false)
             }
-            Value::Bool(true) => {
+            Ok(Value::Bool(true)) => {
                 let timeline_request = TimelineRequest {
                     index: self.index,
                     state: TimelineRequestStepState::Running,
@@ -459,8 +455,11 @@ where
 
                 Ok(true)
             }
-            v => {
-                let msg = format!("Failed to evaluate the if condition: '{}'", self.cond);
+            Ok(v) => {
+                let msg = format!(
+                    "Condition should evaluate to boolean, got {v:?}; cond '{}'",
+                    self.cond
+                );
                 tracing::debug!("{msg}");
                 self.worker_client
                     .send_job_logs(ctx.clone(), &[LogLine::stderr(self.index, &msg)])
@@ -476,7 +475,31 @@ where
                 self.worker_client
                     .post_step_timeline(ctx.clone(), &timeline_request)
                     .wrap_err("Failed to post step timeline")?;
+
                 bail!("Condition evaluated to value {v:?}, expected bool")
+            }
+            Err(e) => {
+                let msg = format!(
+                    "Failed to evaluate the if condition '{}': '{e:?}'",
+                    self.cond
+                );
+                tracing::debug!("{msg}");
+                self.worker_client
+                    .send_job_logs(ctx.clone(), &[LogLine::stderr(self.index, &msg)])
+                    .wrap_err("Failed to send logs")?;
+
+                let timeline_request = TimelineRequest {
+                    index: self.index,
+                    state: TimelineRequestStepState::Failed {
+                        outcome: TimelineRequestStepOutcome::Failed,
+                    },
+                };
+                tracing::debug!("Posting step state: {timeline_request:?}");
+                self.worker_client
+                    .post_step_timeline(ctx.clone(), &timeline_request)
+                    .wrap_err("Failed to post step timeline")?;
+
+                bail!("Condition evaluated to value {e:?}, expected bool")
             }
         }
     }
@@ -1240,5 +1263,63 @@ mod tests {
             .should_run(ctx::background())
             .expect("to be ok");
         assert!(result);
+    }
+
+    #[test]
+    fn test_command_step_should_run_eval_error() {
+        let mut job_client = MockJobClient::new();
+
+        job_client
+            .expect_post_step_timeline()
+            .returning(move |_, timeline| {
+                assert_eq!(timeline.index, 1, "{:?}", timeline);
+                assert!(
+                    matches!(
+                        timeline.state,
+                        TimelineRequestStepState::Failed {
+                            outcome: TimelineRequestStepOutcome::Failed
+                        }
+                    ),
+                    "{:?}",
+                    timeline
+                );
+                Ok(())
+            })
+            .once();
+
+        job_client
+            .expect_send_job_logs()
+            .returning(|_, log| {
+                assert_eq!(log.len(), 1);
+                assert!(matches!(
+                    log[0],
+                    LogLine {
+                        dst: LogDestination::Stderr,
+                        step_index: 1,
+                        ..
+                    }
+                ));
+                Ok(())
+            })
+            .once();
+
+        let config = new_jobengine_context("example");
+
+        let test_dir = new_test_workdir();
+        let context = ExecutionContext::new(test_dir.dir.clone(), Arc::new(vec![]), config);
+
+        let command_step = CommandStep {
+            index: 1,
+            context: &context,
+            worker_client: job_client,
+            cond: "notexist",
+            run: "echo 'test'",
+            shell: "bash -x",
+            allow_failed: false, // outcome should still be failed since this is a precondition
+        };
+
+        let result = command_step.should_run(ctx::background());
+
+        assert!(result.is_err(), "Expected error, got {result:?}");
     }
 }
