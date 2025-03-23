@@ -1,12 +1,13 @@
 use cellang::Value as CelValue;
 use jobengine::JobEngine;
 use miette::Result;
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
 use uuid::Uuid;
 
 #[derive(Debug)]
 pub struct ExecutionContext {
     workdir: String,
+    job_dir: PathBuf,
     envs: Arc<Vec<(String, String)>>,
     cfg: jobengine::Config,
     engine: JobEngine,
@@ -43,8 +44,10 @@ impl ExecutionContext {
             };
         }
 
+        let job_dir = PathBuf::from(&workdir).join(cfg.id.to_string());
         Self {
             workdir,
+            job_dir,
             envs: Arc::new(envs),
             engine,
             cfg,
@@ -60,6 +63,11 @@ impl ExecutionContext {
     #[inline]
     pub fn workdir(&self) -> &str {
         &self.workdir
+    }
+
+    #[inline]
+    pub fn job_dir(&self) -> &PathBuf {
+        &self.job_dir
     }
 
     #[inline]

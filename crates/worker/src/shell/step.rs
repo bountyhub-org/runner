@@ -36,7 +36,7 @@ where
     #[tracing::instrument(skip(self, ctx))]
     fn run(&self, ctx: Ctx<Background>) -> Result<bool> {
         tracing::debug!("Executing setup step");
-        let workdir = self.context.workdir();
+        let workdir = self.context.job_dir();
 
         let timeline_request = TimelineRequest {
             index: self.index,
@@ -47,10 +47,10 @@ where
             .post_step_timeline(ctx.clone(), &timeline_request)
             .wrap_err("Failed to post step timeline")?;
 
-        tracing::debug!("Creating workdir '{workdir}'");
+        tracing::debug!("Creating job workdir '{workdir:?}'");
         match fs::create_dir_all(workdir) {
             Ok(_) => {
-                let msg = format!("Sucessfully created workdir '{workdir}'");
+                let msg = format!("Sucessfully created job workdir '{workdir:?}'");
                 tracing::debug!("{msg}");
                 self.worker_client
                     .send_job_logs(ctx.clone(), &[LogLine::stdout(self.index, &msg)])
@@ -70,7 +70,7 @@ where
                 Ok(true)
             }
             Err(e) => {
-                let msg = format!("Failed to create workdir '{workdir}': {e:?}");
+                let msg = format!("Failed to create job workdir '{workdir:?}': {e:?}");
                 tracing::debug!("{msg}");
                 self.worker_client
                     .send_job_logs(ctx.clone(), &[LogLine::stderr(self.index, &msg)])
@@ -113,7 +113,7 @@ where
     #[tracing::instrument(skip(self, ctx))]
     fn run(&self, ctx: Ctx<Background>) -> Result<bool> {
         tracing::debug!("Executing teardown step");
-        let workdir = self.context.workdir();
+        let workdir = self.context.job_dir();
 
         let timeline_request = TimelineRequest {
             index: self.index,
@@ -124,10 +124,10 @@ where
             .post_step_timeline(ctx.clone(), &timeline_request)
             .wrap_err("Failed to post step timeline")?;
 
-        tracing::debug!("Creating workdir '{workdir}'");
+        tracing::debug!("Creating job workdir '{workdir:?}'");
         match fs::remove_dir_all(workdir) {
             Ok(_) => {
-                let msg = format!("Sucessfully removed workdir '{workdir}'");
+                let msg = format!("Sucessfully removed job workdir '{workdir:?}'");
                 tracing::debug!("{msg}");
                 self.worker_client
                     .send_job_logs(ctx.clone(), &[LogLine::stdout(self.index, &msg)])
@@ -147,7 +147,7 @@ where
                 Ok(true)
             }
             Err(e) => {
-                let msg = format!("Failed to remove workdir '{workdir}': {e:?}");
+                let msg = format!("Failed to remove job workdir '{workdir:?}': {e:?}");
                 tracing::debug!("{msg}");
                 self.worker_client
                     .send_job_logs(ctx.clone(), &[LogLine::stderr(self.index, &msg)])
@@ -829,10 +829,86 @@ mod tests {
             .expect("want setup step run to be ok, got error");
 
         assert!(result);
+
+        let path = context.job_dir();
+        assert!(path.exists());
     }
 
     #[test]
     fn test_teardown_step() {
-        l
+        let mut job_client = MockJobClient::new();
+        job_client
+            .expect_post_step_timeline()
+            .returning(move |_, timeline| {
+                assert_eq!(timeline.index, 3, "{:?}", timeline);
+                assert!(
+                    matches!(timeline.state, TimelineRequestStepState::Running),
+                    "{:?}",
+                    timeline
+                );
+                Ok(())
+            })
+            .once();
+
+        job_client
+            .expect_post_step_timeline()
+            .returning(move |_, timeline| {
+                assert_eq!(timeline.index, 3, "{:?}", timeline);
+                assert!(
+                    matches!(timeline.state, TimelineRequestStepState::Succeeded),
+                    "{:?}",
+                    timeline
+                );
+                Ok(())
+            })
+            .once();
+
+        job_client
+            .expect_send_job_logs()
+            .returning(|_, log| {
+                assert_eq!(log.len(), 1);
+                assert!(matches!(
+                    log[0],
+                    LogLine {
+                        dst: LogDestination::Stdout,
+                        step_index: 3,
+                        ..
+                    }
+                ));
+                Ok(())
+            })
+            .once();
+
+        let config = jobengine::Config {
+            id: Uuid::now_v7(),
+            name: "example".to_string(),
+            scans: BTreeMap::new(),
+            project: ProjectMeta { id: Uuid::now_v7() },
+            workflow: WorkflowMeta { id: Uuid::now_v7() },
+            revision: WorkflowRevisionMeta { id: Uuid::now_v7() },
+            vars: BTreeMap::new(),
+            envs: BTreeMap::new(),
+            inputs: None,
+        };
+
+        let test_dir = new_test_workdir();
+        let context = ExecutionContext::new(test_dir.dir.clone(), Arc::new(vec![]), config);
+
+        let teardown_step = TeardownStep {
+            index: 3,
+            context: &context,
+            worker_client: job_client,
+        };
+
+        fs::create_dir_all(context.job_dir()).expect("job workdir to be created");
+
+        let result = teardown_step
+            .run(ctx::background())
+            .expect("want setup step run to be ok, got error");
+
+        assert!(result);
+
+        let path = context.job_dir();
+        assert!(!path.exists());
     }
 }
