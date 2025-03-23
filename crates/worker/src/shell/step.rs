@@ -4,13 +4,14 @@ use client::job::{JobClient, TimelineRequest, TimelineRequestStepOutcome};
 use client::job::{LogLine, TimelineRequestStepState};
 use ctx::{Background, Ctx};
 use miette::{bail, IntoDiagnostic, Result, WrapErr};
+use std::fs::{self, File};
 use std::io::{BufRead, BufReader};
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::mpsc::{self, TryRecvError};
+use std::sync::mpsc::{self, SyncSender, TryRecvError};
+use std::thread;
 use std::thread::JoinHandle;
 use std::time::Duration;
-use std::{fs, thread};
 use uuid::Uuid;
 use zip::write::{FileOptionExtension, FileOptions, SimpleFileOptions};
 use zip::ZipWriter;
@@ -229,7 +230,7 @@ where
                 tracing::error!("Failed to spawn child process: {err:?}");
                 let timeline_request = TimelineRequest {
                     index: self.index,
-                    state: self.fail_state(),
+                    state: self.soft_fail_state(),
                 };
 
                 tracing::debug!("Posting step state: {timeline_request:?}");
@@ -241,38 +242,18 @@ where
             }
         };
 
-        let stdout = child.stdout.take().expect("Failed to open stdout");
-        let stderr = child.stderr.take().expect("Failed to open stderr");
+        let stdout = BufReader::new(child.stdout.take().expect("Failed to open stdout")).lines();
+        let stderr = BufReader::new(child.stderr.take().expect("Failed to open stderr")).lines();
 
         let (log_tx, log_rx) = mpsc::sync_channel(100);
 
         let stdout_tx = log_tx.clone();
         let index = self.index;
-        let stdout_handle = thread::spawn(move || {
-            let lines = BufReader::new(stdout).lines();
-            for line in lines {
-                let line = line.unwrap();
-                if let Err(e) = stdout_tx.send(LogLine::stdout(index, &line)) {
-                    tracing::error!("Failed to send stdout to channel, stopping the stream: {e:?}");
-                    bail!("stdout send failed");
-                };
-            }
-            Ok(())
-        });
+        let stdout_handle = thread::spawn(move || read_and_send_line(index, stdout_tx, stdout));
 
         let stderr_tx = log_tx.clone();
         let index = self.index;
-        let stderr_handle = thread::spawn(move || {
-            let lines = BufReader::new(stderr).lines();
-            for line in lines {
-                let line = line.unwrap();
-                if let Err(e) = stderr_tx.send(LogLine::stderr(index, &line)) {
-                    tracing::error!("Failed to send stderr to channel, stopping the stream: {e:?}");
-                    bail!("stderr send failed");
-                };
-            }
-            Ok(())
-        });
+        let stderr_handle = thread::spawn(move || read_and_send_line(index, stderr_tx, stderr));
 
         let log_ctx = ctx.clone();
         let worker_client = self.worker_client.clone();
@@ -353,7 +334,7 @@ where
 
                     let timeline_request = TimelineRequest {
                         index: self.index,
-                        state: self.fail_state(),
+                        state: self.soft_fail_state(),
                     };
 
                     tracing::debug!("Posting step state: {timeline_request:?}");
@@ -375,7 +356,7 @@ where
                     state: if ok {
                         TimelineRequestStepState::Succeeded
                     } else {
-                        self.fail_state()
+                        self.soft_fail_state()
                     },
                 };
 
@@ -390,7 +371,7 @@ where
                 tracing::error!("Failed to wait child process: {e:?}");
                 let timeline_request = TimelineRequest {
                     index: self.index,
-                    state: self.fail_state(),
+                    state: self.soft_fail_state(),
                 };
 
                 tracing::debug!("Posting step state: {timeline_request:?}");
@@ -607,7 +588,7 @@ where
         Ok(file_path)
     }
 
-    fn fail_state(&self) -> TimelineRequestStepState {
+    fn soft_fail_state(&self) -> TimelineRequestStepState {
         if self.allow_failed {
             TimelineRequestStepState::Failed {
                 outcome: TimelineRequestStepOutcome::Succeeded,
@@ -642,7 +623,7 @@ where
 
             let timeline_request = TimelineRequest {
                 index: self.index,
-                state: TimelineRequestStepState::Running,
+                state: TimelineRequestStepState::Skipped,
             };
             tracing::debug!("Posting step state: {timeline_request:?}");
             self.worker_client
@@ -661,20 +642,48 @@ where
             .post_step_timeline(ctx.clone(), &timeline_request)
             .wrap_err("Failed to post step timeline")?;
 
-        let workdir = PathBuf::from(self.context.workdir());
+        let path_buf = match self.create_zip_file() {
+            Ok(path) => path,
+            Err(e) => {
+                let msg = format!("Failed to create zip file: {e:?}");
+                return self.fail_with_message(ctx.clone(), &msg);
+            }
+        };
 
-        let filename = format!("{}.zip", Uuid::new_v4());
-        let result_path = workdir.join(filename);
+        let file = match File::open(&path_buf) {
+            Ok(file) => file,
+            Err(e) => {
+                let msg = format!("Failed to open file after zipping: {e:?}");
+                return self.fail_with_message(ctx.clone(), &msg);
+            }
+        };
 
-        let uploads = self.uploads.clone();
-        let result = std::fs::File::create(result_path.clone()).into_diagnostic()?;
+        match self.worker_client.upload_job_artifact(ctx.clone(), file) {
+            Ok(_) => Ok(true),
+            Err(e) => {
+                let msg = format!("Failed to upload job artifact: {e:?}");
+                return self.fail_with_message(ctx.clone(), &msg);
+            }
+        }
+    }
+}
+
+impl<C> UploadStep<'_, C>
+where
+    C: JobClient,
+{
+    fn create_zip_file(&self) -> Result<PathBuf> {
+        let workdir = PathBuf::from(self.context.job_dir());
+        let result_path = workdir.join(format!("{}.zip", Uuid::new_v4()));
+
+        let result = File::create(result_path.clone()).into_diagnostic()?;
         let mut zip = ZipWriter::new(result);
 
         let option = SimpleFileOptions::default()
             .compression_method(zip::CompressionMethod::Deflated)
             .compression_level(Some(9));
 
-        for upload in uploads {
+        for upload in self.uploads {
             let path = normalize_abs_path(&workdir, Path::new(upload.as_str()))
                 .wrap_err("Failed to normalize path")?;
 
@@ -685,8 +694,45 @@ where
             }
         }
 
-        Ok(true)
+        Ok(result_path)
     }
+
+    fn fail_with_message(&self, ctx: Ctx<Background>, msg: &str) -> Result<bool> {
+        tracing::debug!("{msg}");
+        self.worker_client
+            .send_job_logs(ctx.clone(), &[LogLine::stderr(self.index, msg)])
+            .wrap_err("Failed to send logs")?;
+
+        let timeline_request = TimelineRequest {
+            index: self.index,
+            state: TimelineRequestStepState::Failed {
+                outcome: TimelineRequestStepOutcome::Failed,
+            },
+        };
+
+        tracing::debug!("Posting step state: {timeline_request:?}");
+        self.worker_client
+            .post_step_timeline(ctx.clone(), &timeline_request)
+            .wrap_err("Failed to post step timeline")?;
+        tracing::debug!("Posted step state: {timeline_request:?}");
+
+        tracing::debug!("Posted setup step");
+        Ok(false)
+    }
+}
+
+fn read_and_send_line<I>(index: u32, tx: SyncSender<LogLine>, it: I) -> Result<()>
+where
+    I: Iterator<Item = Result<String, std::io::Error>>,
+{
+    for line in it {
+        let line = line.into_diagnostic().wrap_err("Failed to read line")?;
+        if let Err(e) = tx.send(LogLine::stdout(index, &line)) {
+            tracing::error!("Failed to send stdout to channel, stopping the stream: {e:?}");
+            bail!("stdout send failed");
+        };
+    }
+    Ok(())
 }
 
 #[tracing::instrument]
@@ -733,7 +779,7 @@ fn normalize_abs_path(root: &Path, s: &Path) -> Result<PathBuf> {
 
 #[tracing::instrument(skip(w, option))]
 fn add_file_to_zip<T>(
-    w: &mut ZipWriter<std::fs::File>,
+    w: &mut ZipWriter<File>,
     src: &Path,
     dst: &Path,
     option: FileOptions<T>,
@@ -745,7 +791,7 @@ where
         .into_diagnostic()
         .wrap_err("Failed to start file from path")?;
 
-    let mut f = std::fs::File::open(src)
+    let mut f = File::open(src)
         .into_diagnostic()
         .wrap_err("Failed to open file to zip")?;
 
@@ -758,7 +804,7 @@ where
 
 #[tracing::instrument(skip(w, option))]
 fn add_dir_to_zip<T>(
-    w: &mut ZipWriter<std::fs::File>,
+    w: &mut ZipWriter<File>,
     dir_path: &Path,
     base_path: &Path,
     option: FileOptions<T>,
@@ -1164,7 +1210,7 @@ mod tests {
         };
 
         assert!(matches!(
-            command_step.fail_state(),
+            command_step.soft_fail_state(),
             TimelineRequestStepState::Failed {
                 outcome: TimelineRequestStepOutcome::Succeeded
             }
@@ -1181,7 +1227,7 @@ mod tests {
         };
 
         assert!(matches!(
-            command_step.fail_state(),
+            command_step.soft_fail_state(),
             TimelineRequestStepState::Failed {
                 outcome: TimelineRequestStepOutcome::Failed
             }
@@ -1320,6 +1366,14 @@ mod tests {
 
         let result = command_step.should_run(ctx::background());
 
+        assert!(result.is_err(), "Expected error, got {result:?}");
+    }
+
+    #[test]
+    fn test_normalize_abs_path_cannot_escape() {
+        let test_dir = new_test_workdir();
+        let path = PathBuf::from("../../../../../etc/hosts");
+        let result = normalize_abs_path(&PathBuf::from(test_dir.dir.as_str()), &path);
         assert!(result.is_err(), "Expected error, got {result:?}");
     }
 }
