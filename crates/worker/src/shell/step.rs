@@ -217,7 +217,7 @@ where
         let args = cmd;
         let mut cmd = Command::new(binary);
         cmd.args(args);
-        cmd.current_dir(self.context.workdir());
+        cmd.current_dir(self.context.job_dir());
         cmd.envs(self.context.envs().iter().cloned());
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());
@@ -485,7 +485,27 @@ where
     fn split_shell(&self, ctx: Ctx<Background>) -> Result<Vec<String>> {
         tracing::debug!("Shell split: {}", self.shell);
         match shlex::split(self.shell) {
-            Some(cmd) => Ok(cmd),
+            Some(cmd) if !cmd.is_empty() => Ok(cmd),
+            Some(_) => {
+                let msg = "Shell split is empty".to_string();
+                tracing::debug!("{msg}");
+                self.worker_client
+                    .send_job_logs(ctx.clone(), &[LogLine::stderr(self.index, &msg)])
+                    .wrap_err("Failed to send logs")?;
+
+                let timeline_request = TimelineRequest {
+                    index: self.index,
+                    state: TimelineRequestStepState::Failed {
+                        outcome: TimelineRequestStepOutcome::Failed,
+                    },
+                };
+                tracing::debug!("Posting step state: {timeline_request:?}");
+                self.worker_client
+                    .post_step_timeline(ctx.clone(), &timeline_request)
+                    .wrap_err("Failed to post step timeline")?;
+
+                bail!(msg)
+            }
             None => {
                 let msg = format!("Failed to split the shell {}", self.shell);
                 tracing::debug!("{msg}");
@@ -538,7 +558,7 @@ where
             }
         };
 
-        let file_path = Path::new(self.context.workdir()).join(Uuid::new_v4().to_string());
+        let file_path = Path::new(self.context.job_dir()).join(Uuid::new_v4().to_string());
 
         fs::write(&file_path, script)
             .into_diagnostic()
@@ -749,6 +769,24 @@ mod tests {
         }
     }
 
+    fn new_jobengine_context(name: &str) -> jobengine::Config {
+        jobengine::Config {
+            id: Uuid::now_v7(),
+            name: name.to_string(),
+            scans: {
+                let mut m = BTreeMap::new();
+                m.insert(name.to_string(), vec![]);
+                m
+            },
+            project: ProjectMeta { id: Uuid::now_v7() },
+            workflow: WorkflowMeta { id: Uuid::now_v7() },
+            revision: WorkflowRevisionMeta { id: Uuid::now_v7() },
+            vars: BTreeMap::new(),
+            envs: BTreeMap::new(),
+            inputs: None,
+        }
+    }
+
     fn new_test_workdir() -> TestDir {
         TestDir {
             dir: env::temp_dir()
@@ -803,17 +841,7 @@ mod tests {
             })
             .once();
 
-        let config = jobengine::Config {
-            id: Uuid::now_v7(),
-            name: "example".to_string(),
-            scans: BTreeMap::new(),
-            project: ProjectMeta { id: Uuid::now_v7() },
-            workflow: WorkflowMeta { id: Uuid::now_v7() },
-            revision: WorkflowRevisionMeta { id: Uuid::now_v7() },
-            vars: BTreeMap::new(),
-            envs: BTreeMap::new(),
-            inputs: None,
-        };
+        let config = new_jobengine_context("example");
 
         let test_dir = new_test_workdir();
         let context = ExecutionContext::new(test_dir.dir.clone(), Arc::new(vec![]), config);
@@ -879,17 +907,7 @@ mod tests {
             })
             .once();
 
-        let config = jobengine::Config {
-            id: Uuid::now_v7(),
-            name: "example".to_string(),
-            scans: BTreeMap::new(),
-            project: ProjectMeta { id: Uuid::now_v7() },
-            workflow: WorkflowMeta { id: Uuid::now_v7() },
-            revision: WorkflowRevisionMeta { id: Uuid::now_v7() },
-            vars: BTreeMap::new(),
-            envs: BTreeMap::new(),
-            inputs: None,
-        };
+        let config = new_jobengine_context("example");
 
         let test_dir = new_test_workdir();
         let context = ExecutionContext::new(test_dir.dir.clone(), Arc::new(vec![]), config);
@@ -910,5 +928,90 @@ mod tests {
 
         let path = context.job_dir();
         assert!(!path.exists());
+    }
+
+    #[test]
+    fn test_command_step_split_shell_empty() {
+        let mut job_client = MockJobClient::new();
+
+        job_client
+            .expect_post_step_timeline()
+            .returning(move |_, timeline| {
+                assert_eq!(timeline.index, 1, "{:?}", timeline);
+                assert!(
+                    matches!(
+                        timeline.state,
+                        TimelineRequestStepState::Failed {
+                            outcome: TimelineRequestStepOutcome::Failed
+                        }
+                    ),
+                    "{:?}",
+                    timeline
+                );
+                Ok(())
+            })
+            .once();
+
+        job_client
+            .expect_send_job_logs()
+            .returning(|_, log| {
+                assert_eq!(log.len(), 1);
+                assert!(matches!(
+                    log[0],
+                    LogLine {
+                        dst: LogDestination::Stderr,
+                        step_index: 1,
+                        ..
+                    }
+                ));
+                Ok(())
+            })
+            .once();
+
+        let config = new_jobengine_context("example");
+
+        let test_dir = new_test_workdir();
+        let context = ExecutionContext::new(test_dir.dir.clone(), Arc::new(vec![]), config);
+
+        let command_step = CommandStep {
+            index: 1,
+            context: &context,
+            worker_client: job_client,
+            cond: "ok",
+            run: "echo 'test'",
+            shell: "",
+            allow_failed: true, // outcome should still be failed since this is a precondition
+        };
+
+        let v = command_step.split_shell(ctx::background());
+        assert!(v.is_err(), "expected error, got {v:?}");
+    }
+
+    #[test]
+    fn test_command_step_split_shell_ok() {
+        let mut job_client = MockJobClient::new();
+
+        let config = new_jobengine_context("example");
+
+        let test_dir = new_test_workdir();
+        let context = ExecutionContext::new(test_dir.dir.clone(), Arc::new(vec![]), config);
+
+        let command_step = CommandStep {
+            index: 1,
+            context: &context,
+            worker_client: job_client,
+            cond: "ok",
+            run: "echo 'test'",
+            shell: "bash -x",
+            allow_failed: true, // outcome should still be failed since this is a precondition
+        };
+
+        let v = command_step
+            .split_shell(ctx::background())
+            .expect("want ok");
+
+        assert_eq!(v.len(), 2);
+        assert_eq!(v[0], "bash");
+        assert_eq!(v[1], "-x");
     }
 }
