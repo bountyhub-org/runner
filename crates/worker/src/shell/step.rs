@@ -805,12 +805,12 @@ mod tests {
     }
 
     fn new_test_workdir() -> TestDir {
-        TestDir {
-            dir: env::temp_dir()
-                .join(Uuid::new_v4().to_string())
-                .to_string_lossy()
-                .to_string(),
-        }
+        let dir = env::temp_dir()
+            .join(Uuid::new_v4().to_string())
+            .to_string_lossy()
+            .to_string();
+        fs::create_dir_all(&dir).expect("create dir all should be ok");
+        TestDir { dir }
     }
 
     #[test]
@@ -1163,5 +1163,44 @@ mod tests {
                 outcome: TimelineRequestStepOutcome::Failed
             }
         ));
+    }
+
+    #[test]
+    fn test_command_step_should_run() {
+        let mut job_client = MockJobClient::new();
+
+        job_client
+            .expect_post_step_timeline()
+            .returning(move |_, timeline| {
+                assert_eq!(timeline.index, 1, "{:?}", timeline);
+                assert!(
+                    matches!(timeline.state, TimelineRequestStepState::Skipped),
+                    "{:?}",
+                    timeline
+                );
+                Ok(())
+            })
+            .once();
+
+        let config = new_jobengine_context("example");
+
+        let test_dir = new_test_workdir();
+        let mut context = ExecutionContext::new(test_dir.dir.clone(), Arc::new(vec![]), config);
+        context.set_ok(false);
+
+        let command_step = CommandStep {
+            index: 1,
+            context: &context,
+            worker_client: job_client,
+            cond: "ok",
+            run: "echo 'test'",
+            shell: "bash -x",
+            allow_failed: false, // outcome should still be failed since this is a precondition
+        };
+
+        let result = command_step
+            .should_run(ctx::background())
+            .expect("to be ok");
+        assert!(!result);
     }
 }

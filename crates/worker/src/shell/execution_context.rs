@@ -110,6 +110,7 @@ impl ExecutionContext {
     #[tracing::instrument(skip(self))]
     pub fn set_ok(&mut self, ok: bool) {
         self.ok = self.ok && ok;
+        self.engine.set_ok(self.ok);
     }
 }
 
