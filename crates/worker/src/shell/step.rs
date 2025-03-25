@@ -885,6 +885,17 @@ mod tests {
         }
     }
 
+    impl TestDir {
+        fn init() -> Self {
+            let dir = env::temp_dir()
+                .join(Uuid::new_v4().to_string())
+                .to_string_lossy()
+                .to_string();
+            fs::create_dir_all(&dir).expect("create dir all should be ok");
+            TestDir { dir }
+        }
+    }
+
     fn new_jobengine_context(name: &str) -> jobengine::Config {
         jobengine::Config {
             id: Uuid::now_v7(),
@@ -901,15 +912,6 @@ mod tests {
             envs: BTreeMap::new(),
             inputs: None,
         }
-    }
-
-    fn new_test_workdir() -> TestDir {
-        let dir = env::temp_dir()
-            .join(Uuid::new_v4().to_string())
-            .to_string_lossy()
-            .to_string();
-        fs::create_dir_all(&dir).expect("create dir all should be ok");
-        TestDir { dir }
     }
 
     #[test]
@@ -959,7 +961,7 @@ mod tests {
 
         let config = new_jobengine_context("example");
 
-        let test_dir = new_test_workdir();
+        let test_dir = TestDir::init();
         let context = ExecutionContext::new(test_dir.dir.clone(), Arc::new(vec![]), config);
 
         let setup_step = SetupStep {
@@ -1025,7 +1027,7 @@ mod tests {
 
         let config = new_jobengine_context("example");
 
-        let test_dir = new_test_workdir();
+        let test_dir = TestDir::init();
         let context = ExecutionContext::new(test_dir.dir.clone(), Arc::new(vec![]), config);
 
         let teardown_step = TeardownStep {
@@ -1086,7 +1088,7 @@ mod tests {
 
         let config = new_jobengine_context("example");
 
-        let test_dir = new_test_workdir();
+        let test_dir = TestDir::init();
         let context = ExecutionContext::new(test_dir.dir.clone(), Arc::new(vec![]), config);
 
         let command_step = CommandStep {
@@ -1109,7 +1111,7 @@ mod tests {
 
         let config = new_jobengine_context("example");
 
-        let test_dir = new_test_workdir();
+        let test_dir = TestDir::init();
         let context = ExecutionContext::new(test_dir.dir.clone(), Arc::new(vec![]), config);
 
         let command_step = CommandStep {
@@ -1137,7 +1139,7 @@ mod tests {
 
         let config = new_jobengine_context("example");
 
-        let test_dir = new_test_workdir();
+        let test_dir = TestDir::init();
         let context = ExecutionContext::new(test_dir.dir.clone(), Arc::new(vec![]), config);
 
         fs::create_dir_all(context.job_dir()).expect("job dir to be set");
@@ -1201,7 +1203,7 @@ mod tests {
 
         let config = new_jobengine_context("example");
 
-        let test_dir = new_test_workdir();
+        let test_dir = TestDir::init();
         let context = ExecutionContext::new(test_dir.dir.clone(), Arc::new(vec![]), config);
 
         // directory doesn't exist. Want to make write to fail
@@ -1227,7 +1229,7 @@ mod tests {
         // easy to write
         let config = new_jobengine_context("example");
 
-        let test_dir = new_test_workdir();
+        let test_dir = TestDir::init();
         let context = ExecutionContext::new(test_dir.dir.clone(), Arc::new(vec![]), config);
         let command_step = CommandStep {
             index: 1,
@@ -1283,7 +1285,7 @@ mod tests {
 
         let config = new_jobengine_context("example");
 
-        let test_dir = new_test_workdir();
+        let test_dir = TestDir::init();
         let mut context = ExecutionContext::new(test_dir.dir.clone(), Arc::new(vec![]), config);
         context.set_ok(false);
 
@@ -1322,7 +1324,7 @@ mod tests {
 
         let config = new_jobengine_context("example");
 
-        let test_dir = new_test_workdir();
+        let test_dir = TestDir::init();
         let context = ExecutionContext::new(test_dir.dir.clone(), Arc::new(vec![]), config);
 
         let command_step = CommandStep {
@@ -1381,7 +1383,7 @@ mod tests {
 
         let config = new_jobengine_context("example");
 
-        let test_dir = new_test_workdir();
+        let test_dir = TestDir::init();
         let context = ExecutionContext::new(test_dir.dir.clone(), Arc::new(vec![]), config);
 
         let command_step = CommandStep {
@@ -1401,7 +1403,7 @@ mod tests {
 
     #[test]
     fn test_normalize_abs_path_cannot_escape() {
-        let test_dir = new_test_workdir();
+        let test_dir = TestDir::init();
         let path = PathBuf::from("../../../../../etc/hosts");
         let result = normalize_abs_path(&PathBuf::from(test_dir.dir.as_str()), &path);
         assert!(result.is_err(), "Expected error, got {result:?}");
@@ -1437,7 +1439,7 @@ mod tests {
 
     #[test]
     fn test_upload_step_create_zip_file() {
-        let test_dir = new_test_workdir();
+        let test_dir = TestDir::init();
 
         let config = new_jobengine_context("example");
         let context = ExecutionContext::new(test_dir.dir.clone(), Arc::new(vec![]), config);
@@ -1483,7 +1485,7 @@ mod tests {
 
         assert!(zip_path.is_file());
 
-        let result_dir = new_test_workdir();
+        let result_dir = TestDir::init();
         {
             let f = File::open(&zip_path).expect("to be able to open the result zip path");
             let mut archive = ZipArchive::new(f).expect("to create zip archive from file");

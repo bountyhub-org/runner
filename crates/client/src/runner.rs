@@ -1,16 +1,13 @@
 use super::error::{ClientError, OperationError};
 use crate::pool::ClientPool;
-use config::Config;
+use config::ConfigManager;
 use ctx::{Background, Ctx};
 use miette::{Result, WrapErr};
 #[cfg(feature = "mockall")]
 use mockall::mock;
 use recoil::{Interval, Recoil, State};
 use serde::{Deserialize, Serialize};
-use std::{
-    sync::{Arc, RwLock},
-    time::Duration,
-};
+use std::{sync::Arc, time::Duration};
 use ureq::Response;
 use uuid::Uuid;
 
@@ -62,14 +59,14 @@ pub struct HttpRunnerClient {
     user_agent: Arc<String>,
     pool: ClientPool,
     recoil: Recoil,
-    config: Arc<RwLock<Config>>,
+    config_manager: ConfigManager,
 }
 
 impl HttpRunnerClient {
     #[tracing::instrument]
-    pub fn new(config: Arc<RwLock<Config>>, pool: ClientPool, user_agent: Arc<String>) -> Self {
+    pub fn new(config_manager: ConfigManager, pool: ClientPool, user_agent: Arc<String>) -> Self {
         Self {
-            config,
+            config_manager,
             pool,
             user_agent,
             recoil: Recoil {
@@ -89,7 +86,7 @@ impl RunnerClient for HttpRunnerClient {
     #[tracing::instrument(skip(self, ctx))]
     fn hello(&self, ctx: Ctx<Background>) -> Result<()> {
         let (endpoint, token) = {
-            let cfg = self.config.read().unwrap();
+            let cfg = self.config_manager.get()?;
 
             (
                 format!("{}/api/v0/runners/hello", cfg.invoker_url),
@@ -123,10 +120,7 @@ impl RunnerClient for HttpRunnerClient {
         });
 
         match res {
-            Ok(res) => {
-                self.update_token(&res);
-                Ok(())
-            }
+            Ok(res) => self.update_token_if_refreshed(&res),
             Err(recoil::recoil::Error::MaxRetriesReached) => {
                 Err(OperationError::MaxRetriesError.into())
             }
@@ -137,7 +131,7 @@ impl RunnerClient for HttpRunnerClient {
     #[tracing::instrument(skip(self, ctx))]
     fn goodbye(&self, ctx: Ctx<Background>) -> Result<()> {
         let (endpoint, token) = {
-            let cfg = self.config.read().unwrap();
+            let cfg = self.config_manager.get()?;
 
             (
                 format!("{}/api/v0/runners/goodbye", cfg.invoker_url),
@@ -167,10 +161,7 @@ impl RunnerClient for HttpRunnerClient {
         });
 
         match res {
-            Ok(res) => {
-                self.update_token(&res);
-                Ok(())
-            }
+            Ok(res) => self.update_token_if_refreshed(&res),
             Err(recoil::recoil::Error::MaxRetriesReached) => {
                 Err(OperationError::MaxRetriesError.into())
             }
@@ -181,7 +172,7 @@ impl RunnerClient for HttpRunnerClient {
     #[tracing::instrument(skip(self, ctx))]
     fn request(&self, ctx: Ctx<Background>, capacity: u32) -> Result<Vec<JobAcquiredResponse>> {
         let (endpoint, token) = {
-            let cfg = self.config.read().unwrap();
+            let cfg = self.config_manager.get()?;
             (
                 format!("{}/api/v0/jobs/request", cfg.invoker_url),
                 format!("Runner {}", cfg.token),
@@ -213,7 +204,7 @@ impl RunnerClient for HttpRunnerClient {
 
         match res {
             Ok(res) => {
-                self.update_token(&res);
+                self.update_token_if_refreshed(&res)?;
                 let res: Vec<JobAcquiredResponse> =
                     res.into_json()
                         .map_err(OperationError::from)
@@ -230,7 +221,7 @@ impl RunnerClient for HttpRunnerClient {
     #[tracing::instrument(skip(self, ctx))]
     fn complete(&self, ctx: Ctx<Background>, job_id: Uuid) -> Result<()> {
         let (endpoint, token) = {
-            let cfg = self.config.read().unwrap();
+            let cfg = self.config_manager.get()?;
             (
                 format!("{}/api/v0/jobs/complete", cfg.invoker_url),
                 format!("Runner {}", cfg.token),
@@ -262,10 +253,7 @@ impl RunnerClient for HttpRunnerClient {
         });
 
         match res {
-            Ok(res) => {
-                self.update_token(&res);
-                Ok(())
-            }
+            Ok(res) => self.update_token_if_refreshed(&res),
             Err(recoil::recoil::Error::MaxRetriesReached) => {
                 Err(OperationError::MaxRetriesError.into())
             }
@@ -276,11 +264,13 @@ impl RunnerClient for HttpRunnerClient {
 
 impl HttpRunnerClient {
     #[tracing::instrument]
-    fn update_token(&self, resp: &Response) {
+    #[inline]
+    fn update_token_if_refreshed(&self, resp: &Response) -> Result<()> {
         if let Some(token) = resp.header("X-Authorization-Refresh") {
-            let mut cfg = self.config.write().unwrap();
+            let mut cfg = self.config_manager.get()?;
             cfg.token = token.to_string();
-            cfg.write().unwrap();
+            self.config_manager.put(&cfg)?;
         };
+        Ok(())
     }
 }

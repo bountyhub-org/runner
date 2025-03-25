@@ -1,6 +1,6 @@
 use miette::{miette, Diagnostic, IntoDiagnostic, LabeledSpan, Result, WrapErr};
 use serde::{Deserialize, Serialize};
-use std::io::{Read, Write};
+use std::sync::{Arc, RwLock};
 use std::{fs, io};
 use thiserror::Error;
 use url::Url;
@@ -9,7 +9,58 @@ use uuid::Uuid;
 pub const CONFIG_FILE: &str = ".runner";
 pub const RUNNER_VERSION: &str = env!("CARGO_PKG_VERSION");
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+/// Manages the configuration by reading/writing and caching it internally
+/// If the configuration file changes, it doesn't matter. We source it once,
+/// and keep it in memory and writing through.
+#[derive(Debug, Clone, Default)]
+pub struct ConfigManager {
+    inner: Arc<RwLock<Option<Config>>>,
+}
+
+impl ConfigManager {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn get(&self) -> Result<Config> {
+        {
+            let c = self.inner.read().expect("read lock to succeed");
+            if let Some(ref c) = *c {
+                return Ok(c.clone());
+            }
+        }
+
+        let mut c = self.inner.write().expect("write lock to succeed");
+        let config: Config =
+            serde_json::from_str(&fs::read_to_string(CONFIG_FILE).into_diagnostic().wrap_err(
+                format!("Failed to read config file {CONFIG_FILE} from present working directory"),
+            )?)
+            .into_diagnostic()
+            .wrap_err("Failed to deserialize configuration")?;
+
+        config.validate().wrap_err("Invalid configuration")?;
+
+        *c = Some(config.clone());
+        Ok(config)
+    }
+
+    pub fn put(&self, cfg: &Config) -> Result<()> {
+        cfg.validate()?;
+        let mut c = self.inner.write().expect("lock to succeed");
+        let content = serde_json::to_string(cfg)
+            .into_diagnostic()
+            .wrap_err("Failed to serialize configuration")?;
+
+        fs::write(CONFIG_FILE, content)
+            .into_diagnostic()
+            .wrap_err("Failed to write config to a file")?;
+
+        *c = Some(cfg.clone());
+        Ok(())
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct Config {
     pub token: String,
     pub hub_url: String,
@@ -31,43 +82,6 @@ impl Config {
         validate_workdir(&self.workdir).wrap_err("Workdir validation error")?;
         validate_capacity(self.capacity).wrap_err("Capacity validation error")?;
         Ok(())
-    }
-
-    #[tracing::instrument]
-    pub fn write(&self) -> Result<()> {
-        let mut file = fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .open(CONFIG_FILE)
-            .map_err(Error::from)?;
-
-        let content = serde_json::to_string(&self).map_err(Error::from)?;
-
-        file.write_all(content.as_bytes()).map_err(Error::from)?;
-
-        Ok(())
-    }
-
-    #[tracing::instrument]
-    pub fn read() -> Result<Config> {
-        let mut file = fs::OpenOptions::new()
-            .read(true)
-            .open(CONFIG_FILE)
-            .map_err(Error::from)?;
-
-        let content = &mut String::new();
-        file.read_to_string(content).map_err(Error::from)?;
-
-        let config: Config = serde_json::from_slice(content.as_bytes()).map_err(Error::from)?;
-
-        config.validate()?;
-
-        fs::create_dir_all(&config.workdir)
-            .map_err(Error::from)
-            .wrap_err("Failed to create workdir")?;
-
-        Ok(config)
     }
 }
 
@@ -181,4 +195,60 @@ fn test_runner_name_validation() {
     assert!(validate_name("test_123").is_err());
     assert!(validate_name("ab").is_err());
     assert!(validate_name("a".repeat(51).as_str()).is_err());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::env;
+
+    struct TestDir {
+        dir: String,
+    }
+
+    impl Drop for TestDir {
+        fn drop(&mut self) {
+            if let Err(e) = fs::remove_dir_all(&self.dir) {
+                eprintln!("Failed to remove test directory: {e:?}");
+            }
+        }
+    }
+
+    impl TestDir {
+        fn init() -> Self {
+            let dir = env::temp_dir()
+                .join(Uuid::new_v4().to_string())
+                .to_string_lossy()
+                .to_string();
+            fs::create_dir_all(&dir).expect("create dir all should be ok");
+            env::set_current_dir(&dir).expect("failed to set current dir");
+            TestDir { dir }
+        }
+    }
+
+    #[test]
+    fn test_config_manager_empty_get() {
+        let _test_dir = TestDir::init();
+        let cm = ConfigManager::new();
+        let result = cm.get();
+        assert!(result.is_err(), "Want err, got {result:?}");
+    }
+
+    #[test]
+    fn test_config_manager_put_and_get_ok() {
+        let test_dir = TestDir::init();
+        let cfg = Config {
+            token: Uuid::new_v4().to_string(),
+            hub_url: "https://bountyhub.org".to_string(),
+            invoker_url: "https://invoker.bountyhub.org".to_string(),
+            fluxy_url: "https://fluxy.bountyhub.org".to_string(),
+            name: "test".to_string(),
+            workdir: test_dir.dir.clone(),
+            capacity: 1,
+        };
+        let cm = ConfigManager::new();
+        cm.put(&cfg).expect("to save config");
+        let got = cm.get().expect("to get the config");
+        assert_eq!(cfg, got);
+    }
 }
