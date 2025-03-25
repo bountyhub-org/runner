@@ -48,10 +48,10 @@ where
             .post_step_timeline(ctx.clone(), &timeline_request)
             .wrap_err("Failed to post step timeline")?;
 
-        tracing::debug!("Creating job workdir '{workdir:?}'");
+        tracing::debug!("Creating job workdir {workdir:?}");
         match fs::create_dir_all(workdir) {
             Ok(_) => {
-                let msg = format!("Sucessfully created job workdir '{workdir:?}'");
+                let msg = format!("Sucessfully created job workdir {workdir:?}");
                 tracing::debug!("{msg}");
                 self.worker_client
                     .send_job_logs(ctx.clone(), &[LogLine::stdout(self.index, &msg)])
@@ -71,7 +71,7 @@ where
                 Ok(true)
             }
             Err(e) => {
-                let msg = format!("Failed to create job workdir '{workdir:?}': {e:?}");
+                let msg = format!("Failed to create job workdir {workdir:?}: {e:?}");
                 tracing::debug!("{msg}");
                 self.worker_client
                     .send_job_logs(ctx.clone(), &[LogLine::stderr(self.index, &msg)])
@@ -125,10 +125,10 @@ where
             .post_step_timeline(ctx.clone(), &timeline_request)
             .wrap_err("Failed to post step timeline")?;
 
-        tracing::debug!("Creating job workdir '{workdir:?}'");
+        tracing::debug!("Creating job workdir {workdir:?}");
         match fs::remove_dir_all(workdir) {
             Ok(_) => {
-                let msg = format!("Sucessfully removed job workdir '{workdir:?}'");
+                let msg = format!("Sucessfully removed job workdir {workdir:?}");
                 tracing::debug!("{msg}");
                 self.worker_client
                     .send_job_logs(ctx.clone(), &[LogLine::stdout(self.index, &msg)])
@@ -148,7 +148,7 @@ where
                 Ok(true)
             }
             Err(e) => {
-                let msg = format!("Failed to remove job workdir '{workdir:?}': {e:?}");
+                let msg = format!("Failed to remove job workdir {workdir:?}: {e:?}");
                 tracing::debug!("{msg}");
                 self.worker_client
                     .send_job_logs(ctx.clone(), &[LogLine::stderr(self.index, &msg)])
@@ -683,6 +683,11 @@ where
             .compression_method(zip::CompressionMethod::Deflated)
             .compression_level(Some(9));
 
+        let workdir = workdir
+            .canonicalize()
+            .into_diagnostic()
+            .wrap_err("Failed to canonicalize the workdir")?;
+
         for upload in self.uploads {
             let path = normalize_abs_path(&workdir, Path::new(upload.as_str()))
                 .wrap_err("Failed to normalize path")?;
@@ -690,7 +695,14 @@ where
             if path.is_dir() {
                 add_dir_to_zip(&mut zip, &path, &workdir, option)?;
             } else {
-                add_file_to_zip(&mut zip, &path, &path, option)?;
+                add_file_to_zip(
+                    &mut zip,
+                    &path,
+                    path.strip_prefix(&workdir)
+                        .into_diagnostic()
+                        .wrap_err("Failed to strip workdir prefix when calculating destination")?,
+                    option,
+                )?;
             }
         }
 
