@@ -170,7 +170,7 @@ impl LogLine {
             dst: LogDestination::Stdout,
             step_index,
             timestamp: OffsetDateTime::now_utc(),
-            line: line.to_string(),
+            line: line.escape_default().to_string(),
         }
     }
 
@@ -179,7 +179,7 @@ impl LogLine {
             dst: LogDestination::Stderr,
             step_index,
             timestamp: OffsetDateTime::now_utc(),
-            line: line.to_string(),
+            line: line.escape_default().to_string(),
         }
     }
 }
