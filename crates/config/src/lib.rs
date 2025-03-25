@@ -60,7 +60,7 @@ impl ConfigManager {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct Config {
     pub token: String,
     pub hub_url: String,
@@ -195,4 +195,60 @@ fn test_runner_name_validation() {
     assert!(validate_name("test_123").is_err());
     assert!(validate_name("ab").is_err());
     assert!(validate_name("a".repeat(51).as_str()).is_err());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::env;
+
+    struct TestDir {
+        dir: String,
+    }
+
+    impl Drop for TestDir {
+        fn drop(&mut self) {
+            if let Err(e) = fs::remove_dir_all(&self.dir) {
+                eprintln!("Failed to remove test directory: {e:?}");
+            }
+        }
+    }
+
+    impl TestDir {
+        fn init() -> Self {
+            let dir = env::temp_dir()
+                .join(Uuid::new_v4().to_string())
+                .to_string_lossy()
+                .to_string();
+            fs::create_dir_all(&dir).expect("create dir all should be ok");
+            env::set_current_dir(&dir).expect("failed to set current dir");
+            TestDir { dir }
+        }
+    }
+
+    #[test]
+    fn test_config_manager_empty_get() {
+        let _test_dir = TestDir::init();
+        let cm = ConfigManager::new();
+        let result = cm.get();
+        assert!(result.is_err(), "Want err, got {result:?}");
+    }
+
+    #[test]
+    fn test_config_manager_put_and_get_ok() {
+        let test_dir = TestDir::init();
+        let cfg = Config {
+            token: Uuid::new_v4().to_string(),
+            hub_url: "https://bountyhub.org".to_string(),
+            invoker_url: "https://invoker.bountyhub.org".to_string(),
+            fluxy_url: "https://fluxy.bountyhub.org".to_string(),
+            name: "test".to_string(),
+            workdir: test_dir.dir.clone(),
+            capacity: 1,
+        };
+        let cm = ConfigManager::new();
+        cm.put(&cfg).expect("to save config");
+        let got = cm.get().expect("to get the config");
+        assert_eq!(cfg, got);
+    }
 }
