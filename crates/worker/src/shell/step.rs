@@ -689,8 +689,9 @@ where
             .wrap_err("Failed to canonicalize the workdir")?;
 
         for upload in self.uploads {
-            let path = normalize_abs_path(&workdir, Path::new(upload.as_str()))
-                .wrap_err("Failed to normalize path")?;
+            let path = normalize_abs_path(&workdir, Path::new(upload.as_str())).wrap_err(
+                format!("Failed to normalize path: workdir={workdir:?}, path={upload}"),
+            )?;
 
             if path.is_dir() {
                 add_dir_to_zip(&mut zip, &path, &workdir, option)?;
@@ -853,7 +854,12 @@ mod tests {
     use super::*;
     use client::job::{LogDestination, MockJobClient};
     use jobengine::{ProjectMeta, WorkflowMeta, WorkflowRevisionMeta};
-    use std::{collections::BTreeMap, env, sync::Arc};
+    use std::{
+        collections::{BTreeMap, BTreeSet},
+        env,
+        sync::Arc,
+    };
+    use zip::ZipArchive;
 
     struct TestDir {
         dir: String,
@@ -1387,5 +1393,115 @@ mod tests {
         let path = PathBuf::from("../../../../../etc/hosts");
         let result = normalize_abs_path(&PathBuf::from(test_dir.dir.as_str()), &path);
         assert!(result.is_err(), "Expected error, got {result:?}");
+    }
+
+    fn visit_dirs(
+        base: &Path,
+        dir: &Path,
+        files: &mut BTreeMap<String, String>,
+        dirs: &mut BTreeSet<String>,
+    ) -> std::io::Result<()> {
+        if dir.is_dir() {
+            for entry in fs::read_dir(dir)? {
+                let entry = entry?;
+                let path = entry.path();
+                let path_str = path
+                    .strip_prefix(base)
+                    .expect("strip prefix to succeed")
+                    .to_string_lossy()
+                    .to_string();
+
+                if path.is_dir() {
+                    dirs.insert(path_str);
+                    visit_dirs(base, &path, files, dirs)?;
+                } else {
+                    let s = fs::read_to_string(path).expect("Failed to read string from path");
+                    files.insert(path_str, s);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_upload_step_create_zip_file() {
+        let test_dir = new_test_workdir();
+
+        let config = new_jobengine_context("example");
+        let context = ExecutionContext::new(test_dir.dir.clone(), Arc::new(vec![]), config);
+        let uploads = vec![
+            "file_0.txt".to_string(),
+            "folder/".to_string(),
+            "example/file_3.txt".to_string(),
+        ];
+        let job_dir = context.job_dir();
+        fs::create_dir_all(job_dir).expect("create job dir");
+
+        let (file_0, file_0_path) = ("0", "file_0.txt");
+        fs::write(job_dir.join(file_0_path), file_0).expect("to write file_0");
+
+        let zip_entire_folder_path = context.job_dir().join(&uploads[1]);
+        fs::create_dir_all(&zip_entire_folder_path).expect("to create test folder in job dir");
+        let (file_1, file_1_path) = ("1", "folder/file_1.txt");
+        fs::write(job_dir.join(file_1_path), file_1).expect("to write file_1");
+        let (file_2, file_2_path) = ("2", "folder/file_2.txt");
+        fs::write(job_dir.join(file_2_path), file_2).expect("to write file_2");
+
+        let zip_in_folder_path = job_dir.join("example/");
+        fs::create_dir_all(&zip_in_folder_path).expect("to create zip in folder path");
+        let (file_3, file_3_path) = ("3", "example/file_3.txt");
+        fs::write(job_dir.join(file_3_path), file_3).expect("to write file_3");
+
+        fs::write(
+            job_dir.join("example/ignored.txt"),
+            "this should be ignored",
+        )
+        .expect("to write file that will be ignored");
+
+        let upload_step = UploadStep {
+            index: 2,
+            context: &context,
+            worker_client: MockJobClient::new(),
+            uploads: &uploads,
+        };
+
+        let zip_path = upload_step
+            .create_zip_file()
+            .expect("create zip file to succeed");
+
+        assert!(zip_path.is_file());
+
+        let result_dir = new_test_workdir();
+        {
+            let f = File::open(&zip_path).expect("to be able to open the result zip path");
+            let mut archive = ZipArchive::new(f).expect("to create zip archive from file");
+            archive
+                .extract(&result_dir.dir)
+                .expect("to extract the zip file to the result dir");
+        }
+
+        let mut want_files = BTreeMap::new();
+        want_files.insert(file_0_path.to_string(), file_0.to_string());
+        want_files.insert(file_1_path.to_string(), file_1.to_string());
+        want_files.insert(file_2_path.to_string(), file_2.to_string());
+        want_files.insert(file_3_path.to_string(), file_3.to_string());
+
+        let mut want_dirs = BTreeSet::new();
+        want_dirs.insert("folder".to_string());
+        want_dirs.insert("example".to_string());
+
+        let mut got_files = BTreeMap::new();
+        let mut got_dirs = BTreeSet::new();
+
+        visit_dirs(
+            &PathBuf::from(&result_dir.dir),
+            &PathBuf::from(&result_dir.dir),
+            &mut got_files,
+            &mut got_dirs,
+        )
+        .expect("to read in got files and got dirs");
+
+        assert_eq!(want_files, got_files);
+        assert_eq!(want_dirs, got_dirs);
     }
 }
