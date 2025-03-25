@@ -659,7 +659,19 @@ where
         };
 
         match self.worker_client.upload_job_artifact(ctx.clone(), file) {
-            Ok(_) => Ok(true),
+            Ok(_) => {
+                let timeline_request = TimelineRequest {
+                    index: self.index,
+                    state: TimelineRequestStepState::Succeeded,
+                };
+                tracing::debug!("Posting step state: {timeline_request:?}");
+                self.worker_client
+                    .post_step_timeline(ctx.clone(), &timeline_request)
+                    .wrap_err("Failed to post step timeline")?;
+                tracing::debug!("Posted step state: {timeline_request:?}");
+
+                Ok(true)
+            }
             Err(e) => {
                 let msg = format!("Failed to upload job artifact: {e:?}");
                 return self.fail_with_message(ctx.clone(), &msg);
