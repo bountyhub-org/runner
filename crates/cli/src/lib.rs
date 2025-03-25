@@ -8,14 +8,14 @@ use ctx::{Background, Ctx};
 use miette::{bail, IntoDiagnostic, Result, WrapErr};
 use runner::Runner;
 use std::io::{self, Write};
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use sudoservice::service::Service;
 use sudoservice::systemd::{Config as SystemdConfig, Systemd};
 use worker::shell::ShellWorker;
 
 pub(crate) mod prompt;
 
-use config::{self, Config};
+use config::{self, Config, ConfigManager};
 
 #[derive(Parser, Debug)]
 #[command(
@@ -85,6 +85,8 @@ impl Cli {
     pub fn run(self, ctx: Ctx<Background>) -> Result<()> {
         let pool = ClientPool::default();
         let user_agent = Arc::new(format!("runner/{} (cli)", env!("CARGO_PKG_VERSION")));
+        let config_manager = ConfigManager::new();
+
         match self.command {
             Commands::Configure {
                 token,
@@ -106,13 +108,9 @@ impl Cli {
                 };
 
                 config::validate_name(&name).wrap_err("Invalid name")?;
-
                 config::validate_url(&url).wrap_err("Invalid URL")?;
-
                 config::validate_token(&token).wrap_err("Invalid token")?;
-
                 config::validate_workdir(&workdir).wrap_err("Invalid workdir")?;
-
                 config::validate_capacity(capacity).wrap_err("Invalid capacity")?;
 
                 let request = RegistrationRequest {
@@ -140,23 +138,20 @@ impl Cli {
                 config
                     .validate()
                     .wrap_err("Failed to validate configuration after registration")?;
-
-                config.write().wrap_err("failed to write config")?;
+                config_manager
+                    .put(&config)
+                    .wrap_err("Failed to put configuration")?;
 
                 tracing::info!("Configuration saved to {}", config::CONFIG_FILE);
 
                 Ok(())
             }
             Commands::Service { action } => {
-                let config = Config::read().wrap_err(
-                    "Failed to read config file. Please make sure the runner is registered",
-                )?;
+                let cfg = config_manager
+                    .get()
+                    .wrap_err("Failed to get configuration")?;
 
-                config
-                    .validate()
-                    .wrap_err("Invalid configuration. Please re-register the runner.")?;
-
-                let svc_name = format!("org.bountyhub.runner.{}", config.name);
+                let svc_name = format!("org.bountyhub.runner.{}", cfg.name);
 
                 if !Systemd::is_available() {
                     bail!("Systemd is not available on this system");
@@ -242,31 +237,23 @@ impl Cli {
                 Ok(())
             }
             Commands::Run {} => {
-                let config = Config::read().wrap_err(
-                    "Failed to read config file. Please make sure the runner is registered",
-                )?;
-
-                config
-                    .validate()
-                    .wrap_err("Invalid configuration. Please re-register the runner.")?;
-
-                let config = Arc::new(RwLock::new(config));
+                config_manager.get().wrap_err("Failed to get config")?;
 
                 let worker_envs: Arc<Vec<(String, String)>> = Arc::new(dotenv::vars().collect());
 
                 let worker_builder = WorkerBuilder {
-                    config: Arc::clone(&config),
+                    config: config_manager.clone(),
                     pool: pool.clone(),
                     user_agent: Arc::clone(&user_agent),
                     envs: Arc::clone(&worker_envs),
                 };
 
                 let runner_client = HttpRunnerClient::new(
-                    Arc::clone(&config),
+                    config_manager.clone(),
                     pool.clone(),
                     Arc::clone(&user_agent),
                 );
-                let runner = Runner::new(Arc::clone(&config), worker_builder);
+                let runner = Runner::new(config_manager.clone(), worker_builder);
 
                 runner
                     .run(ctx.clone(), runner_client)
@@ -291,7 +278,7 @@ impl Cli {
 }
 
 struct WorkerBuilder {
-    config: Arc<RwLock<Config>>,
+    config: ConfigManager,
     pool: ClientPool,
     user_agent: Arc<String>,
     envs: Arc<Vec<(String, String)>>,
@@ -300,17 +287,17 @@ struct WorkerBuilder {
 impl runner::WorkerBuilder for WorkerBuilder {
     type Worker = ShellWorker<HttpJobClient>;
 
-    fn build(&self, job: JobAcquiredResponse) -> Self::Worker {
-        ShellWorker {
-            root_workdir: self.config.read().unwrap().workdir.clone(),
+    fn build(&self, job: JobAcquiredResponse) -> Result<Self::Worker> {
+        Ok(ShellWorker {
+            root_workdir: self.config.get()?.workdir.clone(),
             envs: Arc::clone(&self.envs),
             client: HttpJobClient::new(
-                Arc::clone(&self.config),
+                self.config.clone(),
                 self.pool.clone(),
                 &job.token,
                 Arc::clone(&self.user_agent),
             ),
             job,
-        }
+        })
     }
 }

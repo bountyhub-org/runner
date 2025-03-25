@@ -1,6 +1,6 @@
 use client::error::ClientError;
 use client::runner::{JobAcquiredResponse, RunnerClient};
-use config::Config;
+use config::ConfigManager;
 use ctx::{Background, Ctx};
 use miette::{miette, IntoDiagnostic, Result};
 #[cfg(test)]
@@ -8,7 +8,6 @@ use mockall::automock;
 use std::collections::BTreeMap;
 use std::fs;
 use std::sync::mpsc::{self, Receiver, SyncSender};
-use std::sync::{Arc, RwLock};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 use uuid::Uuid;
@@ -20,7 +19,7 @@ where
     WB: WorkerBuilder<Worker = W>,
     W: Worker,
 {
-    config: Arc<RwLock<Config>>,
+    config_manager: ConfigManager,
     worker_builder: WB,
 }
 
@@ -67,9 +66,9 @@ where
     WB: WorkerBuilder<Worker = W> + 'static,
     W: Worker + 'static,
 {
-    pub fn new(config: Arc<RwLock<Config>>, worker_builder: WB) -> Self {
+    pub fn new(config_manager: ConfigManager, worker_builder: WB) -> Self {
         Self {
-            config,
+            config_manager,
             worker_builder,
         }
     }
@@ -80,7 +79,7 @@ where
         C: RunnerClient + 'static,
     {
         tracing::info!("Initializing working directory");
-        fs::create_dir_all(&self.config.read().unwrap().workdir).into_diagnostic()?;
+        fs::create_dir_all(&self.config_manager.get()?.workdir).into_diagnostic()?;
 
         tracing::info!("Contacting invoker service");
         let mut greeting = RunnerGreeting::new(client.clone());
@@ -93,7 +92,7 @@ where
         let poll_ctx = root_ctx.to_background();
         let result_ctx = root_ctx.to_background();
 
-        let channel_cap = self.config.read().unwrap().capacity as usize;
+        let channel_cap = self.config_manager.get()?.capacity as usize;
         let (worker_started_tx, worker_started_rx) =
             mpsc::sync_channel::<Vec<(Uuid, JoinHandle<()>)>>(channel_cap);
         let (worker_finished_tx, worker_finished_rx) = mpsc::sync_channel::<Uuid>(channel_cap);
@@ -146,7 +145,7 @@ where
         let (poll_tx, poll_rx) =
             mpsc::sync_channel::<Result<Vec<JobAcquiredResponse>, ClientError>>(1);
         let poll_client = client.clone();
-        let capacity = self.config.read().unwrap().capacity;
+        let capacity = self.config_manager.get()?.capacity;
         let _poll_handle = thread::spawn(move || {
             poll_loop(poll_ctx, poll_client, capacity, poll_tx, worker_finished_rx);
             root_ctx.cancel();
@@ -181,7 +180,7 @@ where
                 .map(|job| {
                     let id = job.id;
                     let ctx = ctx.to_background();
-                    let worker = self.worker_builder.build(job);
+                    let worker = self.worker_builder.build(job).unwrap();
                     let runner_client = client.clone();
                     let handle = thread::spawn(move || {
                         if let Err(err) = worker.run(ctx.clone()) {
@@ -276,7 +275,7 @@ fn poll_loop<RC>(
 
 pub trait WorkerBuilder {
     type Worker: worker::Worker;
-    fn build(&self, job: JobAcquiredResponse) -> Self::Worker;
+    fn build(&self, job: JobAcquiredResponse) -> Result<Self::Worker>;
 }
 
 #[cfg(test)]

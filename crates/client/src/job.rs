@@ -2,7 +2,7 @@ use crate::{
     error::{ClientError, OperationError},
     pool::ClientPool,
 };
-use config::Config;
+use config::ConfigManager;
 use ctx::{Background, Ctx};
 use jobengine::{JobMeta, ProjectMeta, WorkflowMeta, WorkflowRevisionMeta};
 use miette::{Context, Result};
@@ -11,13 +11,7 @@ use mockall::mock;
 use recoil::{Interval, Recoil, State};
 use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
-use std::{
-    collections::BTreeMap,
-    fmt,
-    fs::File,
-    sync::{Arc, RwLock},
-    time::Duration,
-};
+use std::{collections::BTreeMap, fmt, fs::File, sync::Arc, time::Duration};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
@@ -228,19 +222,19 @@ pub struct HttpJobClient {
     user_agent: Arc<String>,
     recoil: Recoil,
     pool: ClientPool,
-    config: Arc<RwLock<Config>>,
+    config_manager: ConfigManager,
 }
 
 impl HttpJobClient {
     #[tracing::instrument]
     pub fn new(
-        config: Arc<RwLock<Config>>,
+        config_manager: ConfigManager,
         pool: ClientPool,
         token: &str,
         user_agent: Arc<String>,
     ) -> Self {
         Self {
-            config,
+            config_manager,
             pool,
             token: format!("RunnerWorker {}", token),
             user_agent,
@@ -261,7 +255,7 @@ impl JobClient for HttpJobClient {
     #[tracing::instrument(skip(self, ctx))]
     fn resolve(&self, ctx: Ctx<Background>) -> Result<JobResolvedResponse> {
         let endpoint = {
-            let config = self.config.read().unwrap();
+            let config = self.config_manager.get()?;
             format!("{}/api/v0/jobs/resolve", config.invoker_url)
         };
         let client = self.pool.default_client();
@@ -310,7 +304,7 @@ impl JobClient for HttpJobClient {
     #[tracing::instrument(skip(self, ctx))]
     fn post_step_timeline(&self, ctx: Ctx<Background>, timeline: &TimelineRequest) -> Result<()> {
         let endpoint = {
-            let config = self.config.read().unwrap();
+            let config = self.config_manager.get()?;
             format!("{}/api/v0/jobs/timeline", config.invoker_url)
         };
         let client = self.pool.default_client();
@@ -349,7 +343,7 @@ impl JobClient for HttpJobClient {
 
     fn send_job_logs(&self, ctx: Ctx<Background>, logs: &[LogLine]) -> Result<()> {
         let endpoint = {
-            let config = self.config.read().unwrap();
+            let config = self.config_manager.get()?;
             format!("{}/api/v0/jobs/logs", &config.fluxy_url,)
         };
 
@@ -390,7 +384,7 @@ impl JobClient for HttpJobClient {
     #[tracing::instrument(skip(self, ctx))]
     fn upload_job_artifact(&self, ctx: Ctx<Background>, file: File) -> Result<()> {
         let endpoint = {
-            let config = self.config.read().unwrap();
+            let config = self.config_manager.get()?;
             format!("{}/api/v0/jobs/results", &config.fluxy_url)
         };
         let retry = || ctx.is_done();
