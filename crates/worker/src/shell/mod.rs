@@ -1,14 +1,14 @@
 use self::execution_context::ExecutionContext;
 use super::Worker;
-use client::job::JobClient;
+use client::job::{JobClient, Step};
 use client::runner::JobAcquiredResponse;
 use ctx::{Background, Ctx};
 use miette::{Result, WrapErr};
 use std::{path::Path, sync::Arc};
-use steps::StepsRunner;
+use step::{CommandStep, SetupStep, Step as ShellStep, TeardownStep, UploadStep};
 
 pub mod execution_context;
-pub mod steps;
+pub mod step;
 
 #[derive(Clone)]
 pub struct ShellWorker<C>
@@ -32,7 +32,7 @@ where
             .client
             .resolve(ctx.clone())
             .wrap_err("failed to resolve job")?;
-        tracing::info!("Resolved job: {:?}", job);
+        tracing::info!("Resolved job: {}", job.cfg.name);
 
         tracing::info!("Building execution context");
         let workdir = Path::new(&self.root_workdir)
@@ -41,16 +41,65 @@ where
             .unwrap()
             .to_string();
 
-        let job_name = job.cfg.name.clone();
-        let execution_context = ExecutionContext::new(workdir, self.envs.clone(), job.cfg);
+        let mut execution_context = ExecutionContext::new(workdir, self.envs.clone(), job.cfg);
 
-        tracing::info!("Building steps");
-        let mut steps = StepsRunner::new(execution_context, job.steps);
-        tracing::debug!("Built steps: {:?}", steps);
+        for (index, step) in job.steps.iter().enumerate() {
+            let index = index as u32;
+            let ctx = ctx.clone();
+            let worker_client = self.client.clone();
 
-        tracing::info!("Running job: {}", job_name);
-        steps
-            .run(ctx.clone(), &self.client)
-            .wrap_err("steps.run failed")
+            let result = match step {
+                Step::Setup => {
+                    let step = SetupStep {
+                        index,
+                        context: &execution_context,
+                        worker_client,
+                    };
+
+                    step.run(ctx)
+                }
+                Step::Teardown => {
+                    let step = TeardownStep {
+                        index,
+                        context: &execution_context,
+                        worker_client,
+                    };
+
+                    step.run(ctx)
+                }
+                Step::Upload { uploads } => {
+                    let step = UploadStep {
+                        index,
+                        context: &execution_context,
+                        uploads,
+                        worker_client,
+                    };
+
+                    step.run(ctx)
+                }
+                Step::Command {
+                    cond,
+                    run,
+                    shell,
+                    allow_failed,
+                } => {
+                    let step = CommandStep {
+                        index,
+                        context: &execution_context,
+                        worker_client,
+                        cond,
+                        run,
+                        shell,
+                        allow_failed: *allow_failed,
+                    };
+
+                    step.run(ctx)
+                }
+            };
+
+            execution_context.set_ok(result.wrap_err("Failed to run")?);
+        }
+
+        Ok(())
     }
 }

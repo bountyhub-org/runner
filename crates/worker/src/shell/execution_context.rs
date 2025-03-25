@@ -1,13 +1,13 @@
 use cellang::Value as CelValue;
-use client::job::{TimelineRequestStepOutcome, TimelineRequestStepState};
 use jobengine::JobEngine;
 use miette::Result;
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
 use uuid::Uuid;
 
 #[derive(Debug)]
 pub struct ExecutionContext {
     workdir: String,
+    job_dir: PathBuf,
     envs: Arc<Vec<(String, String)>>,
     cfg: jobengine::Config,
     engine: JobEngine,
@@ -44,8 +44,10 @@ impl ExecutionContext {
             };
         }
 
+        let job_dir = PathBuf::from(&workdir).join(cfg.id.to_string());
         Self {
             workdir,
+            job_dir,
             envs: Arc::new(envs),
             engine,
             cfg,
@@ -61,6 +63,11 @@ impl ExecutionContext {
     #[inline]
     pub fn workdir(&self) -> &str {
         &self.workdir
+    }
+
+    #[inline]
+    pub fn job_dir(&self) -> &PathBuf {
+        &self.job_dir
     }
 
     #[inline]
@@ -101,18 +108,8 @@ impl ExecutionContext {
     /// Update the execution context with the state of the step.
     /// If success is already false, it will not be updated.
     #[tracing::instrument(skip(self))]
-    pub fn update_state(&mut self, state: TimelineRequestStepState) {
-        if !self.ok {
-            return;
-        }
-        let fail = match state {
-            TimelineRequestStepState::Cancelled => true,
-            TimelineRequestStepState::Failed { outcome, .. } => {
-                matches!(outcome, TimelineRequestStepOutcome::Failed)
-            }
-            _ => false,
-        };
-        self.ok = !fail;
+    pub fn set_ok(&mut self, ok: bool) {
+        self.ok = self.ok && ok;
         self.engine.set_ok(self.ok);
     }
 }
@@ -120,62 +117,12 @@ impl ExecutionContext {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use client::job::TimelineRequestStepState;
     use jobengine::{JobMeta, ProjectMeta, WorkflowMeta, WorkflowRevisionMeta};
     use std::{collections::BTreeMap, sync::Arc};
     use uuid::Uuid;
 
     #[test]
-    fn test_update_state() {
-        let mut ctx = super::ExecutionContext::new(
-            "workdir".to_string(),
-            Arc::new(vec![("key".to_string(), "value".to_string())]),
-            jobengine::Config {
-                id: Uuid::now_v7(),
-                name: "example".to_string(),
-                scans: BTreeMap::new(),
-                inputs: None,
-                project: ProjectMeta { id: Uuid::now_v7() },
-                workflow: WorkflowMeta { id: Uuid::now_v7() },
-                revision: WorkflowRevisionMeta { id: Uuid::now_v7() },
-                vars: BTreeMap::new(),
-                envs: BTreeMap::new(),
-            },
-        );
-        assert!(ctx.ok);
-
-        ctx.update_state(TimelineRequestStepState::Running);
-        assert!(ctx.ok);
-
-        ctx.update_state(TimelineRequestStepState::Succeeded);
-        assert!(ctx.ok);
-
-        ctx.update_state(TimelineRequestStepState::Skipped);
-        assert!(ctx.ok);
-
-        ctx.update_state(TimelineRequestStepState::Cancelled);
-        assert!(!ctx.ok);
-
-        ctx.update_state(TimelineRequestStepState::Succeeded);
-        assert!(!ctx.ok);
-
-        ctx.ok = true;
-        ctx.update_state(TimelineRequestStepState::Failed {
-            outcome: TimelineRequestStepOutcome::Succeeded,
-        });
-        assert!(ctx.ok);
-
-        ctx.update_state(TimelineRequestStepState::Failed {
-            outcome: TimelineRequestStepOutcome::Failed,
-        });
-        assert!(!ctx.ok);
-
-        ctx.update_state(TimelineRequestStepState::Succeeded);
-        assert!(!ctx.ok);
-    }
-
-    #[test]
-    fn test_eval() {
+    fn test_eval_from_setup() {
         let job_config = jobengine::Config {
             id: Uuid::now_v7(),
             name: "example".to_string(),
@@ -237,6 +184,48 @@ mod tests {
             ctx.eval_expr("id").unwrap(),
             CelValue::String(job_config.id.to_string())
         );
+    }
+
+    #[test]
+    fn test_eval_set_ok() {
+        let job_config = jobengine::Config {
+            id: Uuid::now_v7(),
+            name: "example".to_string(),
+            scans: {
+                let mut m = BTreeMap::new();
+                m.insert(
+                    "example".to_string(),
+                    vec![JobMeta {
+                        id: Uuid::now_v7(),
+                        state: "succeeded".to_string(),
+                        nonce: Some("nonce:example".to_string()),
+                    }],
+                );
+                m
+            },
+            inputs: None,
+            project: ProjectMeta { id: Uuid::now_v7() },
+            workflow: WorkflowMeta { id: Uuid::now_v7() },
+            revision: WorkflowRevisionMeta { id: Uuid::now_v7() },
+            vars: {
+                let mut m = BTreeMap::new();
+                m.insert("key".to_string(), "value".to_string());
+                m
+            },
+            envs: BTreeMap::new(),
+        };
+
+        let mut ctx = super::ExecutionContext::new(
+            "workdir".to_string(),
+            Arc::new(vec![("key".to_string(), "value".to_string())]),
+            job_config.clone(),
+        );
+
+        assert_eq!(ctx.eval_expr("ok").unwrap(), CelValue::Bool(true));
+
+        ctx.set_ok(false);
+
+        assert_eq!(ctx.eval_expr("ok").unwrap(), CelValue::Bool(false));
     }
 
     #[test]

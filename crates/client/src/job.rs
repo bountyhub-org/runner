@@ -164,10 +164,30 @@ pub struct LogLine {
     pub line: String,
 }
 
+impl LogLine {
+    pub fn stdout(step_index: u32, line: &str) -> Self {
+        Self {
+            dst: LogDestination::Stdout,
+            step_index,
+            timestamp: OffsetDateTime::now_utc(),
+            line: line.escape_default().to_string(),
+        }
+    }
+
+    pub fn stderr(step_index: u32, line: &str) -> Self {
+        Self {
+            dst: LogDestination::Stderr,
+            step_index,
+            timestamp: OffsetDateTime::now_utc(),
+            line: line.escape_default().to_string(),
+        }
+    }
+}
+
 pub trait JobClient: Send + Sync + Clone + 'static {
     fn resolve(&self, ctx: Ctx<Background>) -> Result<JobResolvedResponse>;
     fn post_step_timeline(&self, ctx: Ctx<Background>, timeline: &TimelineRequest) -> Result<()>;
-    fn send_job_logs(&self, ctx: Ctx<Background>, logs: Vec<LogLine>) -> Result<()>;
+    fn send_job_logs(&self, ctx: Ctx<Background>, logs: &[LogLine]) -> Result<()>;
     fn upload_job_artifact(&self, ctx: Ctx<Background>, file: File) -> Result<()>;
 }
 
@@ -195,7 +215,7 @@ mock! {
     fn send_job_logs(
         &self,
         ctx: Ctx<Background>,
-        logs: Vec<LogLine>,
+        logs: &[LogLine],
     ) -> Result<()>;
         fn upload_job_artifact(&self, ctx: Ctx<Background>, file: File) -> Result<()>;
     }
@@ -327,7 +347,7 @@ impl JobClient for HttpJobClient {
         }
     }
 
-    fn send_job_logs(&self, ctx: Ctx<Background>, logs: Vec<LogLine>) -> Result<()> {
+    fn send_job_logs(&self, ctx: Ctx<Background>, logs: &[LogLine]) -> Result<()> {
         let endpoint = {
             let config = self.config.read().unwrap();
             format!("{}/api/v0/jobs/logs", &config.fluxy_url,)
@@ -347,7 +367,7 @@ impl JobClient for HttpJobClient {
                 .patch(&endpoint)
                 .set("Authorization", &self.token)
                 .set("Content-Type", "application/json")
-                .send_json(&logs)
+                .send_json(logs)
                 .map_err(ClientError::from)
             {
                 Ok(_) => State::Done(()),
