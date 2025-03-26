@@ -118,10 +118,10 @@ impl RegistrationClient for HttpRegistrationClient {
 
                 Ok(reg)
             }
-            Err(recoil::recoil::Error::MaxRetriesReached) => {
+            Err(recoil::recoil::Error::MaxRetriesReachedError) => {
                 Err(OperationError::MaxRetriesError.into())
             }
-            Err(recoil::recoil::Error::Custom(e)) => Err(e),
+            Err(recoil::recoil::Error::UserError(e)) => Err(e),
         }
     }
 }

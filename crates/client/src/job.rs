@@ -1,6 +1,6 @@
 use crate::{
     error::{ClientError, OperationError},
-    pool::ClientPool,
+    pool::Client,
 };
 use config::ConfigManager;
 use ctx::{Background, Ctx};
@@ -221,7 +221,7 @@ pub struct HttpJobClient {
     token: String,
     user_agent: Arc<String>,
     recoil: Recoil,
-    pool: ClientPool,
+    pool: Client,
     config_manager: ConfigManager,
 }
 
@@ -229,7 +229,7 @@ impl HttpJobClient {
     #[tracing::instrument]
     pub fn new(
         config_manager: ConfigManager,
-        pool: ClientPool,
+        pool: Client,
         token: &str,
         user_agent: Arc<String>,
     ) -> Self {
@@ -294,10 +294,10 @@ impl JobClient for HttpJobClient {
 
                 Ok(res)
             }
-            Err(recoil::recoil::Error::MaxRetriesReached) => {
+            Err(recoil::recoil::Error::MaxRetriesReachedError) => {
                 Err(OperationError::MaxRetriesError.into())
             }
-            Err(recoil::recoil::Error::Custom(e)) => Err(e),
+            Err(recoil::recoil::Error::UserError(e)) => Err(e),
         }
     }
 
@@ -334,10 +334,10 @@ impl JobClient for HttpJobClient {
 
         match res {
             Ok(_) => Ok(()),
-            Err(recoil::recoil::Error::MaxRetriesReached) => {
+            Err(recoil::recoil::Error::MaxRetriesReachedError) => {
                 Err(OperationError::MaxRetriesError.into())
             }
-            Err(recoil::recoil::Error::Custom(e)) => Err(e),
+            Err(recoil::recoil::Error::UserError(e)) => Err(e),
         }
     }
 
@@ -374,10 +374,10 @@ impl JobClient for HttpJobClient {
 
         match res {
             Ok(_) => Ok(()),
-            Err(recoil::recoil::Error::MaxRetriesReached) => {
+            Err(recoil::recoil::Error::MaxRetriesReachedError) => {
                 Err(OperationError::MaxRetriesError.into())
             }
-            Err(recoil::recoil::Error::Custom(e)) => Err(e),
+            Err(recoil::recoil::Error::UserError(e)) => Err(e),
         }
     }
 
@@ -415,10 +415,10 @@ impl JobClient for HttpJobClient {
 
         match res {
             Ok(_) => Ok(()),
-            Err(recoil::recoil::Error::MaxRetriesReached) => {
+            Err(recoil::recoil::Error::MaxRetriesReachedError) => {
                 Err(OperationError::MaxRetriesError.into())
             }
-            Err(recoil::recoil::Error::Custom(e)) => Err(e),
+            Err(recoil::recoil::Error::UserError(e)) => Err(e),
         }
     }
 }

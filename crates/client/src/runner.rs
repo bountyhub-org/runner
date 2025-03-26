@@ -1,5 +1,5 @@
 use super::error::{ClientError, OperationError};
-use crate::pool::ClientPool;
+use crate::pool::Client;
 use config::ConfigManager;
 use ctx::{Background, Ctx};
 use miette::{Result, WrapErr};
@@ -8,7 +8,6 @@ use mockall::mock;
 use recoil::{Interval, Recoil, State};
 use serde::{Deserialize, Serialize};
 use std::{sync::Arc, time::Duration};
-use ureq::Response;
 use uuid::Uuid;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -57,14 +56,14 @@ mock! {
 #[derive(Debug, Clone)]
 pub struct HttpRunnerClient {
     user_agent: Arc<String>,
-    pool: ClientPool,
+    pool: Client,
     recoil: Recoil,
     config_manager: ConfigManager,
 }
 
 impl HttpRunnerClient {
     #[tracing::instrument]
-    pub fn new(config_manager: ConfigManager, pool: ClientPool, user_agent: Arc<String>) -> Self {
+    pub fn new(config_manager: ConfigManager, pool: Client, user_agent: Arc<String>) -> Self {
         Self {
             config_manager,
             pool,
@@ -104,9 +103,8 @@ impl RunnerClient for HttpRunnerClient {
             tracing::debug!("Saying hello to the server");
             match client
                 .post(&endpoint)
-                .set("Authorization", &token)
-                .set("User-Agent", &self.user_agent)
-                .call()
+                .header("Authorization", &token)
+                .send_empty()
                 .map_err(ClientError::from)
             {
                 Ok(res) => State::Done(res),
@@ -121,10 +119,10 @@ impl RunnerClient for HttpRunnerClient {
 
         match res {
             Ok(res) => self.update_token_if_refreshed(&res),
-            Err(recoil::recoil::Error::MaxRetriesReached) => {
+            Err(recoil::recoil::Error::MaxRetriesReachedError) => {
                 Err(OperationError::MaxRetriesError.into())
             }
-            Err(recoil::recoil::Error::Custom(e)) => Err(e),
+            Err(recoil::recoil::Error::UserError(e)) => Err(e),
         }
     }
 
@@ -147,9 +145,9 @@ impl RunnerClient for HttpRunnerClient {
             }
             match client
                 .post(&endpoint)
-                .set("Authorization", &token)
-                .set("User-Agent", &self.user_agent)
-                .call()
+                .header("Authorization", &token)
+                .header("User-Agent", &self.user_agent)
+                .send_empty()
                 .map_err(ClientError::from)
             {
                 Ok(res) => State::Done(res),
@@ -162,10 +160,10 @@ impl RunnerClient for HttpRunnerClient {
 
         match res {
             Ok(res) => self.update_token_if_refreshed(&res),
-            Err(recoil::recoil::Error::MaxRetriesReached) => {
+            Err(recoil::recoil::Error::MaxRetriesReachedError) => {
                 Err(OperationError::MaxRetriesError.into())
             }
-            Err(recoil::recoil::Error::Custom(e)) => Err(e),
+            Err(recoil::recoil::Error::UserError(e)) => Err(e),
         }
     }
 
@@ -188,10 +186,10 @@ impl RunnerClient for HttpRunnerClient {
             }
             match client
                 .post(&endpoint)
-                .set("Authorization", &token)
-                .set("User-Agent", &self.user_agent)
-                .set("Content-Type", "application/json")
-                .send_json(ureq::json!(PollRequest { capacity }))
+                .header("Authorization", &token)
+                .header("User-Agent", &self.user_agent)
+                .header("Content-Type", "application/json")
+                .send_json(PollRequest { capacity })
                 .map_err(ClientError::from)
             {
                 Ok(res) => State::Done(res),
@@ -206,15 +204,15 @@ impl RunnerClient for HttpRunnerClient {
             Ok(res) => {
                 self.update_token_if_refreshed(&res)?;
                 let res: Vec<JobAcquiredResponse> =
-                    res.into_json()
+                    res.read_json()
                         .map_err(OperationError::from)
                         .wrap_err("Failed to deserialize job resolved response")?;
                 Ok(res)
             }
-            Err(recoil::recoil::Error::MaxRetriesReached) => {
+            Err(recoil::recoil::Error::MaxRetriesReachedError) => {
                 Err(OperationError::MaxRetriesError.into())
             }
-            Err(recoil::recoil::Error::Custom(e)) => Err(e),
+            Err(recoil::recoil::Error::UserError(e)) => Err(e),
         }
     }
 
@@ -238,10 +236,10 @@ impl RunnerClient for HttpRunnerClient {
 
             match client
                 .post(&endpoint)
-                .set("Authorization", &token)
-                .set("User-Agent", &self.user_agent)
-                .set("Content-Type", "application/json")
-                .send_json(ureq::json!(CompleteRequest { job_id }))
+                .header("Authorization", &token)
+                .header("User-Agent", &self.user_agent)
+                .header("Content-Type", "application/json")
+                .send_json(CompleteRequest { job_id })
                 .map_err(ClientError::from)
             {
                 Ok(res) => State::Done(res),
@@ -254,10 +252,10 @@ impl RunnerClient for HttpRunnerClient {
 
         match res {
             Ok(res) => self.update_token_if_refreshed(&res),
-            Err(recoil::recoil::Error::MaxRetriesReached) => {
+            Err(recoil::recoil::Error::MaxRetriesReachedError) => {
                 Err(OperationError::MaxRetriesError.into())
             }
-            Err(recoil::recoil::Error::Custom(e)) => Err(e),
+            Err(recoil::recoil::Error::UserError(e)) => Err(e),
         }
     }
 }

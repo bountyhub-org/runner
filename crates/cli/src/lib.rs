@@ -1,7 +1,7 @@
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::{generate, Shell};
 use client::job::HttpJobClient;
-use client::pool::ClientPool;
+use client::pool::Client;
 use client::registration::{HttpRegistrationClient, RegistrationClient, RegistrationRequest};
 use client::runner::{HttpRunnerClient, JobAcquiredResponse};
 use ctx::{Background, Ctx};
@@ -83,8 +83,7 @@ enum ServiceCommands {
 
 impl Cli {
     pub fn run(self, ctx: Ctx<Background>) -> Result<()> {
-        let pool = ClientPool::default();
-        let user_agent = Arc::new(format!("runner/{} (cli)", env!("CARGO_PKG_VERSION")));
+        let pool = Client::default();
         let config_manager = ConfigManager::new();
 
         match self.command {
@@ -279,7 +278,7 @@ impl Cli {
 
 struct WorkerBuilder {
     config: ConfigManager,
-    pool: ClientPool,
+    pool: Client,
     user_agent: Arc<String>,
     envs: Arc<Vec<(String, String)>>,
 }

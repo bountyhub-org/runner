@@ -16,8 +16,8 @@ pub enum Error<C>
 where
     C: Send,
 {
-    MaxRetriesReached,
-    Custom(C),
+    MaxRetriesReachedError,
+    UserError(C),
 }
 
 #[derive(Clone, Debug)]
@@ -38,7 +38,7 @@ impl Recoil {
         loop {
             if let Some(max_retries) = self.max_retries {
                 if retries > max_retries {
-                    return Err(Error::MaxRetriesReached);
+                    return Err(Error::MaxRetriesReachedError);
                 }
             }
             match f() {
@@ -47,7 +47,7 @@ impl Recoil {
                     retries += 1;
                     self.interval.sleep(cancel)
                 }
-                State::Fail(e) => return Err(Error::Custom(e)),
+                State::Fail(e) => return Err(Error::UserError(e)),
             }
         }
     }
@@ -98,7 +98,7 @@ mod tests {
         *fail.borrow_mut() = true;
         *runs.borrow_mut() = 0;
 
-        assert_eq!(backoff.run(func), Err(Error::Custom("fail".to_string())));
+        assert_eq!(backoff.run(func), Err(Error::UserError("fail".to_string())));
     }
 
     #[test]
@@ -129,6 +129,6 @@ mod tests {
             }
         });
 
-        assert_eq!(res, Err(Error::MaxRetriesReached));
+        assert_eq!(res, Err(Error::MaxRetriesReachedError));
     }
 }
