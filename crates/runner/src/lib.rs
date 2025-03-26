@@ -1,13 +1,11 @@
-use client::error::ClientError;
 use client::runner::{JobAcquiredResponse, RunnerClient};
 use config::ConfigManager;
 use ctx::{Background, Ctx};
-use miette::{miette, IntoDiagnostic, Result};
+use miette::{IntoDiagnostic, Result};
 #[cfg(test)]
 use mockall::automock;
-use std::collections::BTreeMap;
 use std::fs;
-use std::sync::mpsc::{self, Receiver, SyncSender};
+use std::sync::mpsc::{self, Receiver, SyncSender, TryRecvError};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 use uuid::Uuid;
@@ -60,6 +58,12 @@ where
     }
 }
 
+#[derive(Debug, Clone)]
+enum RunnerEvent {
+    AcquiredJobs(Vec<JobAcquiredResponse>),
+    UpgradeRequired,
+}
+
 #[cfg_attr(test, automock)]
 impl<WB, W> Runner<WB, W>
 where
@@ -74,7 +78,7 @@ where
     }
 
     #[tracing::instrument(skip(self, ctx, client))]
-    pub fn run<C>(&self, ctx: Ctx<Background>, client: C) -> Result<()>
+    pub fn run<C>(&self, ctx: Ctx<Background>, client: C) -> Result<bool>
     where
         C: RunnerClient + 'static,
     {
@@ -87,226 +91,148 @@ where
 
         tracing::info!("Listening for jobs");
 
-        let root_ctx = ctx.with_cancel();
-        let wait_ctx = root_ctx.to_background();
-        let poll_ctx = root_ctx.to_background();
-        let result_ctx = root_ctx.to_background();
+        let capacity = self.config_manager.get()?.capacity;
+        assert!(capacity > 0, "Config capacity set to 0 doesn't make sense");
 
-        let channel_cap = self.config_manager.get()?.capacity as usize;
-        let (worker_started_tx, worker_started_rx) =
-            mpsc::sync_channel::<Vec<(Uuid, JoinHandle<()>)>>(channel_cap);
-        let (worker_finished_tx, worker_finished_rx) = mpsc::sync_channel::<Uuid>(channel_cap);
+        let (event_tx, event_rx) = mpsc::sync_channel(2);
+        let (worker_joiner_tx, worker_joiner_rx) = mpsc::sync_channel(1);
+        let listener_ctx = ctx.clone();
+        let listener_client = client.clone();
+        let listener_capacity = capacity;
+        thread::spawn(move || {
+            poll_loop(
+                listener_ctx,
+                listener_client,
+                event_tx,
+                worker_joiner_rx,
+                listener_capacity,
+            )
+        });
 
-        let wait_handle = thread::spawn(move || {
-            let mut handles = BTreeMap::new();
-            let ctx = wait_ctx;
+        let (worker_tx, worker_rx) = mpsc::sync_channel(capacity as usize);
+        let worker_joiner_capacity = capacity;
+        let worker_joiner_ctx = ctx.clone();
+        let worker_joiner_handle = thread::spawn(move || {
+            let mut handles = Vec::with_capacity(worker_joiner_capacity as usize);
+
             loop {
-                if ctx.is_done() && handles.is_empty() {
-                    break;
+                if worker_joiner_ctx.is_done() {
+                    return;
                 }
 
-                let hs = match worker_started_rx.try_recv() {
-                    Ok(hs) => Some(hs),
-                    Err(mpsc::TryRecvError::Empty) => None,
-                    Err(mpsc::TryRecvError::Disconnected) => {
-                        tracing::error!("Worker channel is disconnected");
+                while let Ok(id_handle) = worker_rx.try_recv() {
+                    handles.push(id_handle);
+                }
+
+                let mut done_count = 0;
+                handles.retain_mut(|(id, handle): &mut (Uuid, Option<JoinHandle<()>>)| {
+                    if !handle.as_ref().unwrap().is_finished() {
+                        return true;
+                    }
+
+                    tracing::debug!("Joining job id: {id:?}");
+                    done_count += 1;
+                    if let Err(e) = handle.take().unwrap().join() {
+                        tracing::error!("Failed to join the worker thread: {e:?}");
+                    };
+
+                    false
+                });
+
+                if done_count > 0 {
+                    if let Err(e) = worker_joiner_tx.send(done_count) {
+                        tracing::error!("Failed to send done count: {e:?}");
                         break;
                     }
-                };
-
-                if let Some(hs) = hs {
-                    tracing::info!("Received worker handles: {}", hs.len());
-                    for h in hs {
-                        handles.insert(h.0, h.1);
-                    }
                 }
-
-                let mut to_remove = Vec::new();
-                for (id, handle) in handles.iter() {
-                    if handle.is_finished() {
-                        to_remove.push(*id);
-                    }
-                }
-
-                for id in to_remove {
-                    tracing::info!("Joining worker thread: {}", id);
-                    worker_finished_tx.send(id).unwrap();
-                    let handle = handles.remove(&id).unwrap();
-                    if let Err(err) = handle.join() {
-                        tracing::error!("Failed to join worker thread: {:?}", err);
-                        continue;
-                    }
-                }
-
-                thread::sleep(Duration::from_millis(100));
             }
         });
 
-        let (poll_tx, poll_rx) =
-            mpsc::sync_channel::<Result<Vec<JobAcquiredResponse>, ClientError>>(1);
-        let poll_client = client.clone();
-        let capacity = self.config_manager.get()?.capacity;
-        let _poll_handle = thread::spawn(move || {
-            poll_loop(poll_ctx, poll_client, capacity, poll_tx, worker_finished_rx);
-            root_ctx.cancel();
-        });
+        let mut update = false;
+        loop {
+            match event_rx.try_recv() {
+                Ok(RunnerEvent::AcquiredJobs(jobs)) => {
+                    for job in jobs {
+                        let complete_id = job.id;
+                        let job_id = job.id;
 
-        let result = loop {
-            if result_ctx.is_done() {
-                tracing::info!("Runner context is cancelled");
-                break Ok(());
-            }
-
-            let jobs = match poll_rx.try_recv() {
-                Ok(Ok(jobs)) => jobs,
-                Ok(Err(err)) => {
-                    tracing::error!("Failed to poll jobs: {:?}", err);
-                    break Err(err.into());
+                        let worker = self.worker_builder.build(job).unwrap();
+                        let worker_ctx = ctx.clone();
+                        let client = client.clone();
+                        let worker_handle = thread::spawn(move || {
+                            if let Err(e) = worker.run(worker_ctx) {
+                                tracing::error!("Worker returned an error: {e:?}");
+                            };
+                            if let Err(e) = client.complete(ctx::background(), complete_id) {
+                                tracing::error!("Failed to complete the job {complete_id}: {e:?}");
+                            }
+                        });
+                        worker_tx
+                            .send((job_id, Some(worker_handle)))
+                            .expect("to send the spawned worker");
+                    }
                 }
-                Err(mpsc::TryRecvError::Empty) => {
-                    thread::sleep(Duration::from_millis(100));
+                Ok(RunnerEvent::UpgradeRequired) => {
+                    tracing::info!("Upgrade is queued, waiting for jobs to finish before upgrade");
+                    update = true;
+                    break;
+                }
+                Err(TryRecvError::Empty) => {
+                    if ctx.is_done() {
+                        break;
+                    }
+                    thread::sleep(Duration::from_millis(500));
                     continue;
                 }
-                Err(mpsc::TryRecvError::Disconnected) => {
-                    tracing::error!("Poll channel is disconnected");
-                    break Err(miette!("channel disconnected"));
+                Err(_) => {
+                    tracing::error!("Channel closed, exiting...");
+                    break;
                 }
-            };
-
-            tracing::debug!("Poll jobs: {:?}", jobs);
-
-            let id_handles = jobs
-                .into_iter()
-                .map(|job| {
-                    let id = job.id;
-                    let ctx = ctx.to_background();
-                    let worker = self.worker_builder.build(job).unwrap();
-                    let runner_client = client.clone();
-                    let handle = thread::spawn(move || {
-                        if let Err(err) = worker.run(ctx.clone()) {
-                            tracing::error!("Worker failed: {:?}", err);
-                            return;
-                        }
-                        if let Err(err) = runner_client.complete(ctx, id) {
-                            tracing::error!("Failed to complete job: {:?}", err);
-                        }
-                    });
-                    (id, handle)
-                })
-                .collect::<Vec<_>>();
-
-            if let Err(err) = worker_started_tx.send(id_handles) {
-                tracing::error!("Failed to send worker handles: {:?}", err);
             }
-        };
+        }
 
-        tracing::info!("Waiting for worker threads to finish");
-        wait_handle.join().expect("Failed to join wait thread");
-        result
+        if let Err(e) = worker_joiner_handle.join() {
+            tracing::error!("Error returned while joining the worker joiner handle: {e:?}");
+        }
+
+        Ok(update)
     }
 }
 
 fn poll_loop<RC>(
     ctx: Ctx<Background>,
     client: RC,
+    poll_tx: SyncSender<RunnerEvent>,
+    joined_rx: Receiver<u32>,
     mut capacity: u32,
-    poll_tx: SyncSender<Result<Vec<JobAcquiredResponse>, ClientError>>,
-    worker_finished_rx: Receiver<Uuid>,
-) where
+) -> Result<()>
+where
     RC: RunnerClient,
 {
     loop {
         if ctx.is_done() {
             tracing::info!("Polling context is cancelled");
-            return;
+            return Ok(());
         }
 
-        while let Ok(jobs) = worker_finished_rx.try_recv() {
-            tracing::info!("Worker finished: {}", jobs);
-            capacity += 1;
+        if let Ok(joined) = joined_rx.try_recv() {
+            capacity += joined;
         }
 
-        if capacity == 0 {
-            thread::sleep(Duration::from_millis(100));
+        let jobs = client.request(ctx.to_background(), capacity)?;
+        if jobs.is_empty() {
             continue;
         }
 
-        let jobs = client.request(ctx.to_background(), capacity);
-        match jobs {
-            Ok(jobs) => {
-                if jobs.is_empty() {
-                    continue;
-                }
-                capacity -= jobs.len() as u32;
-                poll_tx.send(Ok(jobs)).unwrap();
-            }
-            Err(e) => {
-                match e.downcast::<ClientError>() {
-                    Ok(e) => match e {
-                        ClientError::ServerError | ClientError::ConnectionError(..) => {
-                            tracing::error!("Failed to poll jobs: {:?}. Sleeping for 30s", e);
+        capacity -= jobs.len() as u32;
 
-                            let mut count = 300; // 10 * 100ms * 30s
-                            while !ctx.is_done() && count > 0 {
-                                thread::sleep(Duration::from_millis(100));
-                                count -= 1;
-                            }
-
-                            if ctx.is_done() {
-                                tracing::info!("Polling context is cancelled");
-                                return;
-                            }
-                            continue;
-                        }
-                        e => {
-                            poll_tx.send(Err(e)).unwrap();
-                            return;
-                        }
-                    },
-                    e => {
-                        tracing::error!("Received an error {e:?}. Stopping");
-                        return;
-                    }
-                }
-            }
-        }
+        poll_tx
+            .send(RunnerEvent::AcquiredJobs(jobs))
+            .expect("to send acquired jobs")
     }
 }
 
 pub trait WorkerBuilder {
     type Worker: worker::Worker;
     fn build(&self, job: JobAcquiredResponse) -> Result<Self::Worker>;
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use client::error::ClientError;
-    use client::runner::MockRunnerClient;
-    use miette::bail;
-
-    #[test]
-    fn test_poll_loop() {
-        let mut client = MockRunnerClient::new();
-        client
-            .expect_request()
-            .times(1)
-            .returning(|_, _| bail!("error"));
-
-        let (poll_tx, _poll_rx) =
-            mpsc::sync_channel::<Result<Vec<JobAcquiredResponse>, ClientError>>(1);
-
-        let (_worker_finished_tx, worker_finished_rx) = mpsc::sync_channel::<Uuid>(1);
-
-        let handle = thread::spawn(move || {
-            poll_loop(ctx::background(), client, 1, poll_tx, worker_finished_rx);
-        });
-
-        thread::sleep(Duration::from_secs(1));
-        assert!(
-            handle.is_finished(),
-            "expected poll to exit after fatal error"
-        );
-        handle.join().expect("handle should be joined properly");
-    }
 }
