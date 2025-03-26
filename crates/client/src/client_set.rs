@@ -1,12 +1,16 @@
+use super::job::{JobClient, LogLine};
+use super::registration::RegistrationClient;
+use super::runner::{CompleteRequest, JobAcquiredResponse, PollRequest, RunnerClient};
+use crate::error::ClientError;
+use crate::job::JobResolvedResponse;
+use crate::registration::{RegistrationRequest, RegistrationResponse};
 use config::ConfigManager;
 use ctx::{Background, Ctx};
 use miette::Result;
 #[cfg(feature = "mockall")]
-use recoil::{Interval, Recoil, State};
+use recoil::{Recoil, State};
 use std::{sync::Arc, time::Duration};
-use ureq::{middleware::Middleware, RequestBuilder};
-
-use crate::{error::ClientError, runner::RunnerClient};
+use ureq::middleware::Middleware;
 
 #[derive(Debug, Clone)]
 pub struct ClientSet {
@@ -58,22 +62,6 @@ impl ClientSet {
         Self {
             inner: Arc::new(InnerClientSet::new(cfg)),
         }
-    }
-
-    pub fn long_poll_client(&self) -> ureq::Agent {
-        self.inner.long_poll_client.clone()
-    }
-
-    pub fn default_client(&self) -> ureq::Agent {
-        self.inner.default_client.clone()
-    }
-
-    pub fn assets_client(&self) -> ureq::Agent {
-        self.inner.assets_client.clone()
-    }
-
-    pub fn stream_client(&self) -> ureq::Agent {
-        self.inner.stream_client.clone()
     }
 }
 
@@ -154,7 +142,6 @@ impl RunnerClient for ClientSet {
             )
         };
 
-        let client = self.inner.default_client;
         let retry = || ctx.is_done();
         self.inner
             .recoil
@@ -163,28 +150,28 @@ impl RunnerClient for ClientSet {
                     return State::Fail(ClientError::CancellationError.into());
                 }
                 tracing::debug!("Saying hello to the server");
-                match client
+                match self
+                    .inner
+                    .default_client
                     .post(&endpoint)
                     .header("Authorization", &token)
                     .send_empty()
                     .map_err(ClientError::from)
                 {
                     Ok(res) => State::Done(res),
-                    Err(ClientError::ServerError | ClientError::ConnectionError(..)) => {
-                        State::Retry(retry)
-                    }
-                    Err(e) => State::Fail(
-                        miette::miette!("Failed to initialize contact with the server").wrap_err(e),
-                    ),
+                    Err(e) if e.is_retryable() => State::Retry(retry),
+                    Err(e) => State::Fail(e),
                 }
             })
-            .map_err()
+            .map_err(ClientError::from)?;
+
+        Ok(())
     }
 
     #[tracing::instrument(skip(self, ctx))]
     fn goodbye(&self, ctx: Ctx<Background>) -> Result<()> {
         let (endpoint, token) = {
-            let cfg = self.config_manager.get()?;
+            let cfg = self.inner.config_manager.get()?;
 
             (
                 format!("{}/api/v0/runners/goodbye", cfg.invoker_url),
@@ -192,76 +179,189 @@ impl RunnerClient for ClientSet {
             )
         };
         let retry = || ctx.is_done();
-        let client = self.pool.default_client();
-        let mut recoil = self.recoil.clone();
-        let res = recoil.run(|| {
-            if ctx.is_done() {
-                return State::Fail(ClientError::CancellationError.into());
-            }
-            match client
-                .post(&endpoint)
-                .header("Authorization", &token)
-                .header("User-Agent", &self.user_agent)
-                .send_empty()
-                .map_err(ClientError::from)
-            {
-                Ok(res) => State::Done(res),
-                Err(ClientError::ServerError | ClientError::ConnectionError(..)) => {
-                    State::Retry(retry)
+        self.inner
+            .recoil
+            .run(|| {
+                if ctx.is_done() {
+                    return State::Fail(ClientError::CancellationError.into());
                 }
-                Err(e) => State::Fail(miette::miette!("Failed to notify shutdown").wrap_err(e)),
-            }
-        });
+                match self
+                    .inner
+                    .default_client
+                    .post(&endpoint)
+                    .header("Authorization", &token)
+                    .send_empty()
+                    .map_err(ClientError::from)
+                {
+                    Ok(res) => State::Done(res),
+                    Err(e) if e.is_retryable() => State::Retry(retry),
+                    Err(e) => State::Fail(e),
+                }
+            })
+            .map_err(ClientError::from)?;
 
-        match res {
-            Ok(res) => self.update_token_if_refreshed(&res),
-            Err(recoil::recoil::Error::MaxRetriesReachedError) => {
-                Err(OperationError::MaxRetriesError.into())
-            }
-            Err(recoil::recoil::Error::UserError(e)) => Err(e),
-        }
+        Ok(())
     }
 
     #[tracing::instrument(skip(self, ctx))]
-    fn request(&self, ctx: Ctx<Background>, capacity: u32) -> Result<Vec<JobAcquiredResponse>> {
+    fn request(&self, ctx: Ctx<Background>, req: &PollRequest) -> Result<Vec<JobAcquiredResponse>> {
         let (endpoint, token) = {
-            let cfg = self.config_manager.get()?;
+            let cfg = self.inner.config_manager.get()?;
             (
                 format!("{}/api/v0/jobs/request", cfg.invoker_url),
                 format!("Runner {}", cfg.token),
             )
         };
         let retry = || ctx.is_done();
-        let mut recoil = self.recoil.clone();
 
-        let client = self.pool.long_poll_client();
-        let res = recoil.run(|| {
+        let mut result = self
+            .inner
+            .recoil
+            .run(|| {
+                if ctx.is_done() {
+                    return State::Fail(ClientError::CancellationError.into());
+                }
+                match self
+                    .inner
+                    .long_poll_client
+                    .post(&endpoint)
+                    .header("Authorization", &token)
+                    .header("Content-Type", "application/json")
+                    .send_json(req)
+                    .map_err(ClientError::from)
+                {
+                    Ok(res) => State::Done(res),
+                    Err(e) if e.is_retryable() => State::Retry(retry),
+                    Err(e) => State::Fail(e),
+                }
+            })
+            .map_err(ClientError::from)?;
+
+        Ok(result
+            .body_mut()
+            .read_json::<Vec<JobAcquiredResponse>>()
+            .map_err(ClientError::from)?)
+    }
+
+    #[tracing::instrument(skip(self, ctx))]
+    fn complete(&self, ctx: Ctx<Background>, req: &CompleteRequest) -> Result<()> {
+        let (endpoint, token) = {
+            let cfg = self.inner.config_manager.get()?;
+            (
+                format!("{}/api/v0/jobs/complete", cfg.invoker_url),
+                format!("Runner {}", cfg.token),
+            )
+        };
+        let retry = || ctx.is_done();
+        self.inner
+            .recoil
+            .run(|| {
+                if ctx.is_done() {
+                    return State::Fail(ClientError::CancellationError.into());
+                }
+
+                match self
+                    .inner
+                    .default_client
+                    .post(&endpoint)
+                    .header("Authorization", &token)
+                    .header("Content-Type", "application/json")
+                    .send_json(req)
+                    .map_err(ClientError::from)
+                {
+                    Ok(res) => State::Done(res),
+                    Err(e) if e.is_retryable() => State::Retry(retry),
+                    Err(e) => State::Fail(e),
+                }
+            })
+            .map_err(ClientError::from)?;
+
+        Ok(())
+    }
+}
+
+impl RegistrationClient for ClientSet {
+    fn register(
+        &self,
+        ctx: Ctx<Background>,
+        req: &RegistrationRequest,
+    ) -> Result<RegistrationResponse> {
+        let endpoint = format!(
+            "{}/api/v0/runner-registrations/register",
+            &self.inner.config_manager.get()?.hub_url
+        );
+
+        let retry = || ctx.is_done();
+        let mut result = self
+            .inner
+            .recoil
+            .run(|| {
+                if ctx.is_done() {
+                    return State::Fail(ClientError::CancellationError.into());
+                }
+                match self
+                    .inner
+                    .default_client
+                    .post(&endpoint)
+                    .header("Content-Type", "application/json")
+                    .send_json(req)
+                    .map_err(ClientError::from)
+                {
+                    Ok(res) => State::Done(res),
+                    Err(e) if e.is_retryable() => State::Retry(retry),
+                    Err(e) => State::Fail(e),
+                }
+            })
+            .map_err(ClientError::from)?;
+
+        Ok(result
+            .body_mut()
+            .read_json::<RegistrationResponse>()
+            .map_err(ClientError::from)?)
+    }
+}
+
+impl JobClient for ClientSet {
+    #[tracing::instrument(skip(self, ctx))]
+    fn resolve(&self, ctx: Ctx<Background>) -> Result<JobResolvedResponse> {
+        let endpoint = format!(
+            "{}/api/v0/jobs/resolve",
+            self.inner.config_manager.get()?.invoker_url
+        );
+
+        let retry = || ctx.is_done();
+        let res = self.inner.recoil.run(|| {
             if ctx.is_done() {
-                return State::Fail(ClientError::CancellationError.into());
+                return State::Fail(
+                    miette::miette!("Context is cancelled")
+                        .wrap_err(ClientError::CancellationError),
+                );
             }
-            match client
+
+            match self
+                .inner
+                .default_client
                 .post(&endpoint)
-                .header("Authorization", &token)
-                .header("User-Agent", &self.user_agent)
-                .header("Content-Type", "application/json")
-                .send_json(PollRequest { capacity })
+                .set("Authorization", &self.token)
+                .set("Content-Type", "application/json")
+                .call()
                 .map_err(ClientError::from)
             {
                 Ok(res) => State::Done(res),
                 Err(ClientError::ServerError | ClientError::ConnectionError(..)) => {
                     State::Retry(retry)
                 }
-                Err(e) => State::Fail(miette::miette!("Failed to request the job").wrap_err(e)),
+                Err(e) => State::Fail(miette::miette!("Failed to resolve the job").wrap_err(e)),
             }
         });
 
         match res {
             Ok(res) => {
-                self.update_token_if_refreshed(&res)?;
-                let res: Vec<JobAcquiredResponse> =
-                    res.read_json()
-                        .map_err(OperationError::from)
-                        .wrap_err("Failed to deserialize job resolved response")?;
+                let res = res
+                    .into_json::<JobResolvedResponse>()
+                    .map_err(OperationError::from)
+                    .wrap_err("Failed to deserialize job resolved response")?;
+
                 Ok(res)
             }
             Err(recoil::recoil::Error::MaxRetriesReachedError) => {
@@ -272,18 +372,15 @@ impl RunnerClient for ClientSet {
     }
 
     #[tracing::instrument(skip(self, ctx))]
-    fn complete(&self, ctx: Ctx<Background>, job_id: Uuid) -> Result<()> {
-        let (endpoint, token) = {
-            let cfg = self.config_manager.get()?;
-            (
-                format!("{}/api/v0/jobs/complete", cfg.invoker_url),
-                format!("Runner {}", cfg.token),
-            )
+    fn post_step_timeline(&self, ctx: Ctx<Background>, timeline: &TimelineRequest) -> Result<()> {
+        let endpoint = {
+            let config = self.config_manager.get()?;
+            format!("{}/api/v0/jobs/timeline", config.invoker_url)
         };
+        let client = self.pool.default_client();
         let retry = || ctx.is_done();
         let mut recoil = self.recoil.clone();
 
-        let client = self.pool.default_client();
         let res = recoil.run(|| {
             if ctx.is_done() {
                 return State::Fail(ClientError::CancellationError.into());
@@ -291,22 +388,103 @@ impl RunnerClient for ClientSet {
 
             match client
                 .post(&endpoint)
-                .header("Authorization", &token)
-                .header("User-Agent", &self.user_agent)
-                .header("Content-Type", "application/json")
-                .send_json(CompleteRequest { job_id })
+                .set("Authorization", &self.token)
+                .set("User-Agent", &self.user_agent)
+                .set("Content-Type", "application/json")
+                .send_json(ureq::json!(timeline))
                 .map_err(ClientError::from)
             {
                 Ok(res) => State::Done(res),
                 Err(ClientError::ServerError | ClientError::ConnectionError(..)) => {
                     State::Retry(retry)
                 }
-                Err(e) => State::Fail(miette::miette!("Failed to complete the job").wrap_err(e)),
+                Err(e) => State::Fail(miette::miette!("Failed to post the timeline").wrap_err(e)),
             }
         });
 
         match res {
-            Ok(res) => self.update_token_if_refreshed(&res),
+            Ok(_) => Ok(()),
+            Err(recoil::recoil::Error::MaxRetriesReachedError) => {
+                Err(OperationError::MaxRetriesError.into())
+            }
+            Err(recoil::recoil::Error::UserError(e)) => Err(e),
+        }
+    }
+
+    fn send_job_logs(&self, ctx: Ctx<Background>, logs: &[LogLine]) -> Result<()> {
+        let endpoint = {
+            let config = self.config_manager.get()?;
+            format!("{}/api/v0/jobs/logs", &config.fluxy_url,)
+        };
+
+        let client = self.pool.stream_client();
+
+        let retry = || ctx.is_done();
+        let mut recoil = self.recoil.clone();
+
+        let res = recoil.run(|| {
+            if ctx.is_done() {
+                return State::Fail(ClientError::CancellationError.into());
+            }
+
+            match client
+                .patch(&endpoint)
+                .set("Authorization", &self.token)
+                .set("Content-Type", "application/json")
+                .send_json(logs)
+                .map_err(ClientError::from)
+            {
+                Ok(_) => State::Done(()),
+                Err(ClientError::ServerError | ClientError::ConnectionError(..)) => {
+                    State::Retry(retry)
+                }
+                Err(e) => State::Fail(miette::miette!("Failed to send the job logs").wrap_err(e)),
+            }
+        });
+
+        match res {
+            Ok(_) => Ok(()),
+            Err(recoil::recoil::Error::MaxRetriesReachedError) => {
+                Err(OperationError::MaxRetriesError.into())
+            }
+            Err(recoil::recoil::Error::UserError(e)) => Err(e),
+        }
+    }
+
+    #[tracing::instrument(skip(self, ctx))]
+    fn upload_job_artifact(&self, ctx: Ctx<Background>, file: File) -> Result<()> {
+        let endpoint = {
+            let config = self.config_manager.get()?;
+            format!("{}/api/v0/jobs/results", &config.fluxy_url)
+        };
+        let retry = || ctx.is_done();
+        let mut recoil = self.recoil.clone();
+
+        let file_size = file.metadata().map_err(OperationError::from)?.len();
+
+        let client = self.pool.assets_client();
+        let res = recoil.run(|| {
+            tracing::info!("Uploading results to {}", endpoint);
+            match client
+                .put(&endpoint)
+                .set("Authorization", &self.token)
+                .set("Content-Length", &file_size.to_string())
+                .set("Content-Type", "application/octet-stream")
+                .send(&file)
+                .map_err(ClientError::from)
+            {
+                Ok(_) => State::Done(()),
+                Err(ClientError::ServerError | ClientError::ConnectionError(..)) => {
+                    State::Retry(retry)
+                }
+                Err(e) => {
+                    State::Fail(miette::miette!("Failed to upload the job artifact").wrap_err(e))
+                }
+            }
+        });
+
+        match res {
+            Ok(_) => Ok(()),
             Err(recoil::recoil::Error::MaxRetriesReachedError) => {
                 Err(OperationError::MaxRetriesError.into())
             }
