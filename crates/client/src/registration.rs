@@ -64,7 +64,7 @@ impl HttpRegistrationClient {
             user_agent: user_agent.to_string(),
             recoil: Recoil {
                 interval: Interval {
-                    duration: Duration::from_secs(1),
+                    initial_duration: Duration::from_secs(1),
                     multiplier: 2.0,
                     max_duration: None,
                     jitter: Some((0.9, 1.1)),

@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use crate::interval::Interval;
 
 pub enum State<T, C, E>
@@ -20,14 +22,28 @@ where
     UserError(C),
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Copy)]
 pub struct Recoil {
     pub interval: Interval,
     pub max_retries: Option<usize>,
 }
 
+impl Default for Recoil {
+    fn default() -> Self {
+        Self {
+            interval: Interval {
+                initial_duration: Duration::from_secs(1),
+                multiplier: 2.0,
+                max_duration: None,
+                jitter: Some((0.9, 1.1)),
+            },
+            max_retries: Some(5),
+        }
+    }
+}
+
 impl Recoil {
-    pub fn run<F, C, T, E>(&mut self, mut f: F) -> Result<T, Error<E>>
+    pub fn run<F, C, T, E>(mut self, mut f: F) -> Result<T, Error<E>>
     where
         F: FnMut() -> State<T, C, E>,
         T: Send,
@@ -66,7 +82,7 @@ mod tests {
     #[test]
     fn test_backoff() {
         let interval = Interval {
-            duration: Duration::from_millis(100),
+            initial_duration: Duration::from_millis(100),
             multiplier: 2.0,
             max_duration: Some(Duration::from_secs(600)),
             jitter: Some((0.9, 1.1)),
@@ -104,7 +120,7 @@ mod tests {
     #[test]
     fn test_max_retries() {
         let interval = Interval {
-            duration: Duration::from_millis(100),
+            initial_duration: Duration::from_millis(100),
             multiplier: 2.0,
             max_duration: Some(Duration::from_secs(600)),
             jitter: Some((0.9, 1.1)),

@@ -1,6 +1,6 @@
 use crate::{
+    client_set::ClientSet,
     error::{ClientError, OperationError},
-    pool::Client,
 };
 use config::ConfigManager;
 use ctx::{Background, Ctx};
@@ -221,7 +221,7 @@ pub struct HttpJobClient {
     token: String,
     user_agent: Arc<String>,
     recoil: Recoil,
-    pool: Client,
+    pool: ClientSet,
     config_manager: ConfigManager,
 }
 
@@ -229,7 +229,7 @@ impl HttpJobClient {
     #[tracing::instrument]
     pub fn new(
         config_manager: ConfigManager,
-        pool: Client,
+        pool: ClientSet,
         token: &str,
         user_agent: Arc<String>,
     ) -> Self {
@@ -240,12 +240,12 @@ impl HttpJobClient {
             user_agent,
             recoil: Recoil {
                 interval: Interval {
-                    duration: Duration::from_secs(1),
+                    initial_duration: Duration::from_secs(1),
                     multiplier: 2.0,
                     max_duration: None,
                     jitter: Some((0.9, 1.1)),
                 },
-                max_retries: Some(8),
+                max_retries: Some(5),
             },
         }
     }
