@@ -1,7 +1,7 @@
 use super::execution_context::ExecutionContext;
 use cellang::Value;
-use client::job::{JobClient, TimelineRequest, TimelineRequestStepOutcome};
-use client::job::{LogLine, TimelineRequestStepState};
+use client::worker::{LogLine, TimelineRequestStepState};
+use client::worker::{TimelineRequest, TimelineRequestStepOutcome, WorkerClient};
 use ctx::{Background, Ctx};
 use miette::{bail, IntoDiagnostic, Result, WrapErr};
 use std::fs::{self, File};
@@ -23,7 +23,7 @@ pub trait Step {
 #[derive(Debug, Clone)]
 pub struct SetupStep<'a, C>
 where
-    C: JobClient,
+    C: WorkerClient,
 {
     pub index: u32,
     pub context: &'a ExecutionContext,
@@ -32,7 +32,7 @@ where
 
 impl<C> Step for SetupStep<'_, C>
 where
-    C: JobClient,
+    C: WorkerClient,
 {
     #[tracing::instrument(skip(self, ctx))]
     fn run(&self, ctx: Ctx<Background>) -> Result<bool> {
@@ -100,7 +100,7 @@ where
 #[derive(Debug, Clone)]
 pub struct TeardownStep<'a, C>
 where
-    C: JobClient,
+    C: WorkerClient,
 {
     pub index: u32,
     pub context: &'a ExecutionContext,
@@ -109,7 +109,7 @@ where
 
 impl<C> Step for TeardownStep<'_, C>
 where
-    C: JobClient,
+    C: WorkerClient,
 {
     #[tracing::instrument(skip(self, ctx))]
     fn run(&self, ctx: Ctx<Background>) -> Result<bool> {
@@ -187,7 +187,7 @@ pub struct CommandStep<'a, C> {
 
 impl<C> Step for CommandStep<'_, C>
 where
-    C: JobClient,
+    C: WorkerClient,
 {
     fn run(&self, ctx: Ctx<Background>) -> Result<bool> {
         if !self
@@ -404,7 +404,7 @@ where
 
 impl<C> CommandStep<'_, C>
 where
-    C: JobClient,
+    C: WorkerClient,
 {
     #[tracing::instrument(skip(self, ctx))]
     fn should_run(&self, ctx: Ctx<Background>) -> Result<bool> {
@@ -604,7 +604,7 @@ where
 #[derive(Debug)]
 pub struct UploadStep<'a, C>
 where
-    C: JobClient,
+    C: WorkerClient,
 {
     pub index: u32,
     pub context: &'a ExecutionContext,
@@ -614,7 +614,7 @@ where
 
 impl<C> Step for UploadStep<'_, C>
 where
-    C: JobClient,
+    C: WorkerClient,
 {
     #[tracing::instrument(skip(self, ctx))]
     fn run(&self, ctx: Ctx<Background>) -> Result<bool> {
@@ -682,7 +682,7 @@ where
 
 impl<C> UploadStep<'_, C>
 where
-    C: JobClient,
+    C: WorkerClient,
 {
     fn create_zip_file(&self) -> Result<PathBuf> {
         let workdir = PathBuf::from(self.context.job_dir());
@@ -864,7 +864,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use client::job::{LogDestination, MockJobClient};
+    use client::worker::{LogDestination, MockWorkerClient};
     use jobengine::{ProjectMeta, WorkflowMeta, WorkflowRevisionMeta};
     use std::{
         collections::{BTreeMap, BTreeSet},
@@ -916,7 +916,7 @@ mod tests {
 
     #[test]
     fn test_setup_step() {
-        let mut job_client = MockJobClient::new();
+        let mut job_client = MockWorkerClient::new();
         job_client
             .expect_post_step_timeline()
             .returning(move |_, timeline| {
@@ -982,7 +982,7 @@ mod tests {
 
     #[test]
     fn test_teardown_step() {
-        let mut job_client = MockJobClient::new();
+        let mut job_client = MockWorkerClient::new();
         job_client
             .expect_post_step_timeline()
             .returning(move |_, timeline| {
@@ -1050,7 +1050,7 @@ mod tests {
 
     #[test]
     fn test_command_step_split_shell_empty() {
-        let mut job_client = MockJobClient::new();
+        let mut job_client = MockWorkerClient::new();
 
         job_client
             .expect_post_step_timeline()
@@ -1107,7 +1107,7 @@ mod tests {
 
     #[test]
     fn test_command_step_split_shell_ok() {
-        let job_client = MockJobClient::new();
+        let job_client = MockWorkerClient::new();
 
         let config = new_jobengine_context("example");
 
@@ -1135,7 +1135,7 @@ mod tests {
 
     #[test]
     fn test_command_step_write_script_ok() {
-        let job_client = MockJobClient::new();
+        let job_client = MockWorkerClient::new();
 
         let config = new_jobengine_context("example");
 
@@ -1165,7 +1165,7 @@ mod tests {
 
     #[test]
     fn test_command_step_write_script_fail() {
-        let mut job_client = MockJobClient::new();
+        let mut job_client = MockWorkerClient::new();
 
         job_client
             .expect_post_step_timeline()
@@ -1234,7 +1234,7 @@ mod tests {
         let command_step = CommandStep {
             index: 1,
             context: &context,
-            worker_client: MockJobClient::new(),
+            worker_client: MockWorkerClient::new(),
             cond: "ok",
             run: "echo 'test'",
             shell: "bash -x",
@@ -1251,7 +1251,7 @@ mod tests {
         let command_step = CommandStep {
             index: 1,
             context: &context,
-            worker_client: MockJobClient::new(),
+            worker_client: MockWorkerClient::new(),
             cond: "ok",
             run: "echo 'test'",
             shell: "bash -x",
@@ -1268,7 +1268,7 @@ mod tests {
 
     #[test]
     fn test_command_step_should_run_skipped() {
-        let mut job_client = MockJobClient::new();
+        let mut job_client = MockWorkerClient::new();
 
         job_client
             .expect_post_step_timeline()
@@ -1307,7 +1307,7 @@ mod tests {
 
     #[test]
     fn test_command_step_should_run_running() {
-        let mut job_client = MockJobClient::new();
+        let mut job_client = MockWorkerClient::new();
 
         job_client
             .expect_post_step_timeline()
@@ -1345,7 +1345,7 @@ mod tests {
 
     #[test]
     fn test_command_step_should_run_eval_error() {
-        let mut job_client = MockJobClient::new();
+        let mut job_client = MockWorkerClient::new();
 
         job_client
             .expect_post_step_timeline()
@@ -1475,7 +1475,7 @@ mod tests {
         let upload_step = UploadStep {
             index: 2,
             context: &context,
-            worker_client: MockJobClient::new(),
+            worker_client: MockWorkerClient::new(),
             uploads: &uploads,
         };
 

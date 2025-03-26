@@ -1,9 +1,9 @@
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::{generate, Shell};
 use client::client_set::ClientSet;
-use client::job::HttpJobClient;
-use client::registration::{HttpRegistrationClient, RegistrationClient, RegistrationRequest};
-use client::runner::{HttpRunnerClient, JobAcquiredResponse};
+use client::registration::{RegistrationClient, RegistrationRequest};
+use client::runner::JobAcquiredResponse;
+use client::worker::HttpWorkerClient;
 use ctx::{Background, Ctx};
 use miette::{bail, IntoDiagnostic, Result, WrapErr};
 use runner::Runner;
@@ -83,7 +83,7 @@ enum ServiceCommands {
 
 impl Cli {
     pub fn run(self, ctx: Ctx<Background>) -> Result<()> {
-        let pool = ClientSet::default();
+        let client_set = ClientSet::default();
         let config_manager = ConfigManager::new();
 
         match self.command {
@@ -118,7 +118,7 @@ impl Cli {
                     workdir,
                 };
 
-                let client = HttpRegistrationClient::new(pool.default_client(), &url, &user_agent);
+                let client = client_set.registration_client(&url);
 
                 let response = client
                     .register(ctx, &request)
@@ -242,16 +242,11 @@ impl Cli {
 
                 let worker_builder = WorkerBuilder {
                     config: config_manager.clone(),
-                    pool: pool.clone(),
-                    user_agent: Arc::clone(&user_agent),
+                    client_set: client_set.clone(),
                     envs: Arc::clone(&worker_envs),
                 };
 
-                let runner_client = HttpRunnerClient::new(
-                    config_manager.clone(),
-                    pool.clone(),
-                    Arc::clone(&user_agent),
-                );
+                let runner_client = client_set.runner_client();
                 let runner = Runner::new(config_manager.clone(), worker_builder);
 
                 runner
@@ -278,24 +273,18 @@ impl Cli {
 
 struct WorkerBuilder {
     config: ConfigManager,
-    pool: ClientSet,
-    user_agent: Arc<String>,
+    client_set: ClientSet,
     envs: Arc<Vec<(String, String)>>,
 }
 
 impl runner::WorkerBuilder for WorkerBuilder {
-    type Worker = ShellWorker<HttpJobClient>;
+    type Worker = ShellWorker<HttpWorkerClient>;
 
     fn build(&self, job: JobAcquiredResponse) -> Result<Self::Worker> {
         Ok(ShellWorker {
             root_workdir: self.config.get()?.workdir.clone(),
             envs: Arc::clone(&self.envs),
-            client: HttpJobClient::new(
-                self.config.clone(),
-                self.pool.clone(),
-                &job.token,
-                Arc::clone(&self.user_agent),
-            ),
+            client: self.client_set.worker_client(&job.token),
             job,
         })
     }

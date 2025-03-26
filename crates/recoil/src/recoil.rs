@@ -104,7 +104,7 @@ mod tests {
         };
 
         let mut backoff = Recoil {
-            interval: interval.clone(),
+            interval,
             max_retries: Some(2),
         };
 
@@ -129,8 +129,8 @@ mod tests {
         let runs = RefCell::new(0);
         let retry = || true;
 
-        let mut recoil = Recoil {
-            interval: interval.clone(),
+        let recoil = Recoil {
+            interval,
             max_retries: Some(2),
         };
 

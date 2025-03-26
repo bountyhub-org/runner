@@ -1,15 +1,17 @@
 use config::ConfigManager;
 use ctx::{Background, Ctx};
 use jobengine::{JobMeta, ProjectMeta, WorkflowMeta, WorkflowRevisionMeta};
-use miette::{Context, Result};
+use miette::Result;
 #[cfg(feature = "mockall")]
 use mockall::mock;
-use recoil::{Interval, Recoil, State};
+use recoil::{Recoil, State};
 use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
-use std::{collections::BTreeMap, fmt, fs::File, sync::Arc, time::Duration};
+use std::{collections::BTreeMap, fmt, fs::File};
 use time::OffsetDateTime;
 use uuid::Uuid;
+
+use crate::error::ClientError;
 
 #[derive(Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -174,7 +176,7 @@ impl LogLine {
     }
 }
 
-pub trait JobClient: Send + Sync + Clone + 'static {
+pub trait WorkerClient: Send + Sync + Clone + 'static {
     fn resolve(&self, ctx: Ctx<Background>) -> Result<JobResolvedResponse>;
     fn post_step_timeline(&self, ctx: Ctx<Background>, timeline: &TimelineRequest) -> Result<()>;
     fn send_job_logs(&self, ctx: Ctx<Background>, logs: &[LogLine]) -> Result<()>;
@@ -192,22 +194,162 @@ pub struct StepRef {
 
 #[cfg(feature = "mockall")]
 mock! {
-    pub JobClient {}
+    pub WorkerClient {}
 
-    impl Clone for JobClient {
+    impl Clone for WorkerClient {
         fn clone(&self) -> Self;
     }
 
-    impl JobClient for JobClient {
+    impl WorkerClient for WorkerClient {
         fn resolve(&self, ctx: Ctx<Background>) -> Result<JobResolvedResponse>;
         fn post_step_timeline(&self, ctx: Ctx<Background>, timeline: &TimelineRequest) -> Result<()>;
-
-    fn send_job_logs(
-        &self,
-        ctx: Ctx<Background>,
-        logs: &[LogLine],
-    ) -> Result<()>;
+        fn send_job_logs(
+            &self,
+            ctx: Ctx<Background>,
+            logs: &[LogLine],
+        ) -> Result<()>;
         fn upload_job_artifact(&self, ctx: Ctx<Background>, file: File) -> Result<()>;
     }
+}
 
+#[derive(Clone, Debug)]
+pub struct HttpWorkerClient {
+    pub recoil: Recoil,
+    pub config_manager: ConfigManager,
+    pub default_client: ureq::Agent,
+    pub artifact_client: ureq::Agent,
+    pub token: String,
+}
+
+impl WorkerClient for HttpWorkerClient {
+    #[tracing::instrument(skip(self, ctx))]
+    fn resolve(&self, ctx: Ctx<Background>) -> Result<JobResolvedResponse> {
+        let endpoint = format!(
+            "{}/api/v0/jobs/resolve",
+            self.config_manager.get()?.invoker_url
+        );
+
+        let retry = || ctx.is_done();
+        let mut result = self
+            .recoil
+            .run(|| {
+                if ctx.is_done() {
+                    return State::Fail(ClientError::CancellationError);
+                }
+
+                match self
+                    .default_client
+                    .post(&endpoint)
+                    .header("Authorization", &self.token)
+                    .header("Content-Type", "application/json")
+                    .send_empty()
+                    .map_err(ClientError::from)
+                {
+                    Ok(res) => State::Done(res),
+                    Err(e) if e.is_retryable() => State::Retry(retry),
+                    Err(e) => State::Fail(e),
+                }
+            })
+            .map_err(ClientError::from)?;
+
+        Ok(result
+            .body_mut()
+            .read_json::<JobResolvedResponse>()
+            .map_err(ClientError::from)?)
+    }
+
+    #[tracing::instrument(skip(self, ctx))]
+    fn post_step_timeline(&self, ctx: Ctx<Background>, timeline: &TimelineRequest) -> Result<()> {
+        let endpoint = {
+            let config = self.config_manager.get()?;
+            format!("{}/api/v0/jobs/timeline", config.invoker_url)
+        };
+        let retry = || ctx.is_done();
+
+        self.recoil
+            .run(|| {
+                if ctx.is_done() {
+                    return State::Fail(ClientError::CancellationError);
+                }
+
+                match self
+                    .default_client
+                    .post(&endpoint)
+                    .header("Authorization", &self.token)
+                    .send_json(timeline)
+                    .map_err(ClientError::from)
+                {
+                    Ok(res) => State::Done(res),
+                    Err(e) if e.is_retryable() => State::Retry(retry),
+                    Err(e) => State::Fail(e),
+                }
+            })
+            .map_err(ClientError::from)?;
+
+        Ok(())
+    }
+
+    fn send_job_logs(&self, ctx: Ctx<Background>, logs: &[LogLine]) -> Result<()> {
+        let endpoint = {
+            let config = self.config_manager.get()?;
+            format!("{}/api/v0/jobs/logs", &config.fluxy_url,)
+        };
+
+        let retry = || ctx.is_done();
+
+        self.recoil
+            .run(|| {
+                if ctx.is_done() {
+                    return State::Fail(ClientError::CancellationError);
+                }
+
+                match self
+                    .default_client
+                    .patch(&endpoint)
+                    .header("Authorization", &self.token)
+                    .header("Content-Type", "application/json")
+                    .send_json(logs)
+                    .map_err(ClientError::from)
+                {
+                    Ok(res) => State::Done(res),
+                    Err(e) if e.is_retryable() => State::Retry(retry),
+                    Err(e) => State::Fail(e),
+                }
+            })
+            .map_err(ClientError::from)?;
+
+        Ok(())
+    }
+
+    #[tracing::instrument(skip(self, ctx))]
+    fn upload_job_artifact(&self, ctx: Ctx<Background>, file: File) -> Result<()> {
+        let endpoint = {
+            let config = self.config_manager.get()?;
+            format!("{}/api/v0/jobs/results", &config.fluxy_url)
+        };
+        let retry = || ctx.is_done();
+
+        let file_size = file.metadata().map_err(ClientError::from)?.len();
+
+        self.recoil
+            .run(|| {
+                tracing::info!("Uploading results to {}", endpoint);
+                match self
+                    .artifact_client
+                    .put(&endpoint)
+                    .header("Authorization", &self.token)
+                    .header("Content-Length", &file_size.to_string())
+                    .header("Content-Type", "application/octet-stream")
+                    .send(&file)
+                    .map_err(ClientError::from)
+                {
+                    Ok(res) => State::Done(res),
+                    Err(e) if e.is_retryable() => State::Retry(retry),
+                    Err(e) => State::Fail(e),
+                }
+            })
+            .map_err(ClientError::from)?;
+
+        Ok(())
+    }
 }
