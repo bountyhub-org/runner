@@ -61,7 +61,6 @@ where
 #[derive(Debug, Clone)]
 enum RunnerEvent {
     AcquiredJobs(Vec<JobAcquiredResponse>),
-    UpgradeRequired,
 }
 
 #[cfg_attr(test, automock)]
@@ -78,7 +77,7 @@ where
     }
 
     #[tracing::instrument(skip(self, ctx, client))]
-    pub fn run<C>(&self, ctx: Ctx<Background>, client: C) -> Result<bool>
+    pub fn run<C>(&self, ctx: Ctx<Background>, client: C) -> Result<()>
     where
         C: RunnerClient + 'static,
     {
@@ -121,7 +120,6 @@ where
             )
         });
 
-        let mut update = false;
         loop {
             match event_rx.try_recv() {
                 Ok(RunnerEvent::AcquiredJobs(jobs)) => {
@@ -145,11 +143,6 @@ where
                             .expect("to send the spawned worker");
                     }
                 }
-                Ok(RunnerEvent::UpgradeRequired) => {
-                    tracing::info!("Upgrade is queued, waiting for jobs to finish before upgrade");
-                    update = true;
-                    break;
-                }
                 Err(TryRecvError::Empty) => {
                     if ctx.is_done() {
                         break;
@@ -168,7 +161,7 @@ where
             tracing::error!("Error returned while joining the worker joiner handle: {e:?}");
         }
 
-        Ok(update)
+        Ok(())
     }
 }
 
