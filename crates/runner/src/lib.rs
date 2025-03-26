@@ -192,6 +192,7 @@ where
 
         let jobs = client.request(ctx.to_background(), &PollRequest { capacity })?;
         if jobs.is_empty() {
+            thread::sleep(Duration::from_secs(5));
             continue;
         }
 
@@ -199,7 +200,9 @@ where
 
         poll_tx
             .send(RunnerEvent::AcquiredJobs(jobs))
-            .expect("to send acquired jobs")
+            .expect("to send acquired jobs");
+
+        thread::sleep(Duration::from_secs(5));
     }
 }
 
@@ -249,4 +252,23 @@ fn join_workers(
 pub trait WorkerBuilder {
     type Worker: worker::Worker;
     fn build(&self, job: JobAcquiredResponse) -> Result<Self::Worker>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::poll_loop;
+    use client::runner::MockRunnerClient;
+
+    #[test]
+    fn test_poll_loop_ctx_cancelled() {
+        let ctx = ctx::background().with_cancel();
+        ctx.cancel();
+
+        let rc = MockRunnerClient::new();
+        let (poll_tx, _poll_rx) = mpsc::sync_channel(1);
+        let (_joined_tx, joined_rx) = mpsc::sync_channel(1);
+
+        poll_loop(ctx.to_background(), rc, poll_tx, joined_rx, 1).expect("expected poll loop");
+    }
 }
