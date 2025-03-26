@@ -224,9 +224,12 @@ pub struct HttpWorkerClient {
 impl WorkerClient for HttpWorkerClient {
     #[tracing::instrument(skip(self, ctx))]
     fn resolve(&self, ctx: Ctx<Background>) -> Result<JobResolvedResponse> {
-        let endpoint = format!(
-            "{}/api/v0/jobs/resolve",
-            self.config_manager.get()?.invoker_url
+        let (endpoint, token) = (
+            format!(
+                "{}/api/v0/jobs/resolve",
+                self.config_manager.get()?.invoker_url
+            ),
+            format!("RunnerWorker {}", self.token),
         );
 
         let retry = || ctx.is_done();
@@ -240,7 +243,7 @@ impl WorkerClient for HttpWorkerClient {
                 match self
                     .default_client
                     .post(&endpoint)
-                    .header("Authorization", &self.token)
+                    .header("Authorization", &token)
                     .header("Content-Type", "application/json")
                     .send_empty()
                     .map_err(ClientError::from)
@@ -260,10 +263,13 @@ impl WorkerClient for HttpWorkerClient {
 
     #[tracing::instrument(skip(self, ctx))]
     fn post_step_timeline(&self, ctx: Ctx<Background>, timeline: &TimelineRequest) -> Result<()> {
-        let endpoint = {
-            let config = self.config_manager.get()?;
-            format!("{}/api/v0/jobs/timeline", config.invoker_url)
-        };
+        let (endpoint, token) = (
+            format!(
+                "{}/api/v0/jobs/timeline",
+                self.config_manager.get()?.invoker_url
+            ),
+            format!("RunnerWorker {}", self.token),
+        );
         let retry = || ctx.is_done();
 
         self.recoil
@@ -275,7 +281,7 @@ impl WorkerClient for HttpWorkerClient {
                 match self
                     .default_client
                     .post(&endpoint)
-                    .header("Authorization", &self.token)
+                    .header("Authorization", &token)
                     .send_json(timeline)
                     .map_err(ClientError::from)
                 {
@@ -290,10 +296,10 @@ impl WorkerClient for HttpWorkerClient {
     }
 
     fn send_job_logs(&self, ctx: Ctx<Background>, logs: &[LogLine]) -> Result<()> {
-        let endpoint = {
-            let config = self.config_manager.get()?;
-            format!("{}/api/v0/jobs/logs", &config.fluxy_url,)
-        };
+        let (endpoint, token) = (
+            format!("{}/api/v0/jobs/logs", &self.config_manager.get()?.fluxy_url),
+            format!("RunnerWorker {}", self.token),
+        );
 
         let retry = || ctx.is_done();
 
@@ -306,7 +312,7 @@ impl WorkerClient for HttpWorkerClient {
                 match self
                     .default_client
                     .patch(&endpoint)
-                    .header("Authorization", &self.token)
+                    .header("Authorization", &token)
                     .header("Content-Type", "application/json")
                     .send_json(logs)
                     .map_err(ClientError::from)
@@ -323,10 +329,13 @@ impl WorkerClient for HttpWorkerClient {
 
     #[tracing::instrument(skip(self, ctx))]
     fn upload_job_artifact(&self, ctx: Ctx<Background>, file: File) -> Result<()> {
-        let endpoint = {
-            let config = self.config_manager.get()?;
-            format!("{}/api/v0/jobs/results", &config.fluxy_url)
-        };
+        let (endpoint, token) = (
+            format!(
+                "{}/api/v0/jobs/results",
+                &self.config_manager.get()?.fluxy_url
+            ),
+            format!("RunnerWorker {}", self.token),
+        );
         let retry = || ctx.is_done();
 
         let file_size = file.metadata().map_err(ClientError::from)?.len();
@@ -337,7 +346,7 @@ impl WorkerClient for HttpWorkerClient {
                 match self
                     .artifact_client
                     .put(&endpoint)
-                    .header("Authorization", &self.token)
+                    .header("Authorization", &token)
                     .header("Content-Length", &file_size.to_string())
                     .header("Content-Type", "application/octet-stream")
                     .send(&file)

@@ -76,7 +76,7 @@ impl RunnerClient for HttpRunnerClient {
         self.recoil
             .run(|| {
                 if ctx.is_done() {
-                    return State::Fail(ClientError::CancellationError.into());
+                    return State::Fail(ClientError::CancellationError);
                 }
                 tracing::debug!("Saying hello to the server");
                 match self
@@ -110,7 +110,7 @@ impl RunnerClient for HttpRunnerClient {
         self.recoil
             .run(|| {
                 if ctx.is_done() {
-                    return State::Fail(ClientError::CancellationError.into());
+                    return State::Fail(ClientError::CancellationError);
                 }
                 match self
                     .default_client
@@ -144,7 +144,7 @@ impl RunnerClient for HttpRunnerClient {
             .recoil
             .run(|| {
                 if ctx.is_done() {
-                    return State::Fail(ClientError::CancellationError.into());
+                    return State::Fail(ClientError::CancellationError);
                 }
                 match self
                     .long_poll_client
@@ -180,7 +180,7 @@ impl RunnerClient for HttpRunnerClient {
         self.recoil
             .run(|| {
                 if ctx.is_done() {
-                    return State::Fail(ClientError::CancellationError.into());
+                    return State::Fail(ClientError::CancellationError);
                 }
 
                 match self

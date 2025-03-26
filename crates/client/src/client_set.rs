@@ -4,7 +4,10 @@ use crate::worker::HttpWorkerClient;
 use config::ConfigManager;
 use recoil::Recoil;
 use std::{sync::Arc, time::Duration};
-use ureq::middleware::Middleware;
+use ureq::{
+    middleware::Middleware,
+    tls::{RootCerts, TlsConfig},
+};
 
 #[derive(Debug, Clone)]
 pub struct ClientSet {
@@ -27,6 +30,9 @@ struct InnerClientSet {
 
 impl InnerClientSet {
     fn new(cfg: ClientSetConfig) -> Self {
+        let tls = TlsConfig::builder()
+            .root_certs(RootCerts::PlatformVerifier)
+            .build();
         Self {
             runner_client: HttpRunnerClient {
                 recoil: cfg.recoil,
@@ -37,6 +43,7 @@ impl InnerClientSet {
                         .timeout_recv_response(Some(Duration::from_secs(30)))
                         .timeout_connect(Some(Duration::from_secs(10)))
                         .user_agent(&cfg.user_agent)
+                        .tls_config(tls.clone())
                         .middleware(TokenRefreshMiddleware {
                             config_manager: cfg.config_manager.clone(),
                         })
@@ -48,6 +55,7 @@ impl InnerClientSet {
                         .timeout_recv_response(Some(Duration::from_secs(10)))
                         .timeout_connect(Some(Duration::from_secs(10)))
                         .user_agent(&cfg.user_agent)
+                        .tls_config(tls.clone())
                         .middleware(TokenRefreshMiddleware {
                             config_manager: cfg.config_manager.clone(),
                         })
@@ -63,6 +71,7 @@ impl InnerClientSet {
                         .timeout_recv_response(Some(Duration::from_secs(30)))
                         .timeout_connect(Some(Duration::from_secs(10)))
                         .user_agent(&cfg.user_agent)
+                        .tls_config(tls.clone())
                         .build(),
                 ),
                 artifact_client: ureq::Agent::new_with_config(
@@ -71,6 +80,7 @@ impl InnerClientSet {
                         .timeout_recv_response(Some(Duration::from_secs(2 * 60)))
                         .timeout_connect(Some(Duration::from_secs(10)))
                         .user_agent(&cfg.user_agent)
+                        .tls_config(tls.clone())
                         .build(),
                 ),
                 token: String::default(),
@@ -83,6 +93,7 @@ impl InnerClientSet {
                         .timeout_recv_response(Some(Duration::from_secs(30)))
                         .timeout_connect(Some(Duration::from_secs(10)))
                         .user_agent(&cfg.user_agent)
+                        .tls_config(tls.clone())
                         .build(),
                 ),
                 url: String::default(),

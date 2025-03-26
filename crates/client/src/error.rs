@@ -6,7 +6,7 @@ use ureq::{Error as UreqError, Timeout};
 #[derive(Diagnostic, Debug, Error)]
 #[diagnostic(code(client::client_error))]
 pub enum ClientError {
-    #[error("Server error")]
+    #[error("Server error: {0}")]
     ServerError(u16),
 
     #[error("Unauthorized")]
@@ -18,16 +18,16 @@ pub enum ClientError {
     #[error("Response error")]
     ResponseError(u16),
 
-    #[error("Connection error")]
+    #[error("Connection error: {0:?}")]
     ConnectionError(ConnectionError),
 
-    #[error("Fatal error")]
+    #[error("Client error: {0:?}")]
     ClientError(UreqError),
 
     #[error("Operation cancelled")]
     CancellationError,
 
-    #[error("IO error")]
+    #[error("IO error: {0:?}")]
     IoError(#[from] io::Error),
 }
 
