@@ -1,4 +1,4 @@
-use client::runner::{JobAcquiredResponse, RunnerClient};
+use client::runner::{CompleteRequest, JobAcquiredResponse, PollRequest, RunnerClient};
 use config::ConfigManager;
 use ctx::{Background, Ctx};
 use miette::{IntoDiagnostic, Result};
@@ -134,7 +134,12 @@ where
                             if let Err(e) = worker.run(worker_ctx) {
                                 tracing::error!("Worker returned an error: {e:?}");
                             };
-                            if let Err(e) = client.complete(ctx::background(), complete_id) {
+                            if let Err(e) = client.complete(
+                                ctx::background(),
+                                &CompleteRequest {
+                                    job_id: complete_id,
+                                },
+                            ) {
                                 tracing::error!("Failed to complete the job {complete_id}: {e:?}");
                             }
                         });
@@ -185,7 +190,7 @@ where
             capacity += joined;
         }
 
-        let jobs = client.request(ctx.to_background(), capacity)?;
+        let jobs = client.request(ctx.to_background(), &PollRequest { capacity })?;
         if jobs.is_empty() {
             continue;
         }

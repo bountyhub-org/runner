@@ -1,7 +1,7 @@
 use self::execution_context::ExecutionContext;
 use super::Worker;
-use client::job::{JobClient, Step};
 use client::runner::JobAcquiredResponse;
+use client::worker::{Step, WorkerClient};
 use ctx::{Background, Ctx};
 use miette::{Result, WrapErr};
 use std::{path::Path, sync::Arc};
@@ -13,7 +13,7 @@ pub mod step;
 #[derive(Clone)]
 pub struct ShellWorker<C>
 where
-    C: JobClient,
+    C: WorkerClient,
 {
     pub root_workdir: String,
     pub envs: Arc<Vec<(String, String)>>,
@@ -23,7 +23,7 @@ where
 
 impl<C> Worker for ShellWorker<C>
 where
-    C: JobClient,
+    C: WorkerClient,
 {
     #[tracing::instrument(skip(self, ctx))]
     fn run(self, ctx: Ctx<Background>) -> Result<()> {
