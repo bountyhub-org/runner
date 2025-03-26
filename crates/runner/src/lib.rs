@@ -113,39 +113,12 @@ where
         let worker_joiner_capacity = capacity;
         let worker_joiner_ctx = ctx.clone();
         let worker_joiner_handle = thread::spawn(move || {
-            let mut handles = Vec::with_capacity(worker_joiner_capacity as usize);
-
-            loop {
-                if worker_joiner_ctx.is_done() {
-                    return;
-                }
-
-                while let Ok(id_handle) = worker_rx.try_recv() {
-                    handles.push(id_handle);
-                }
-
-                let mut done_count = 0;
-                handles.retain_mut(|(id, handle): &mut (Uuid, Option<JoinHandle<()>>)| {
-                    if !handle.as_ref().unwrap().is_finished() {
-                        return true;
-                    }
-
-                    tracing::debug!("Joining job id: {id:?}");
-                    done_count += 1;
-                    if let Err(e) = handle.take().unwrap().join() {
-                        tracing::error!("Failed to join the worker thread: {e:?}");
-                    };
-
-                    false
-                });
-
-                if done_count > 0 {
-                    if let Err(e) = worker_joiner_tx.send(done_count) {
-                        tracing::error!("Failed to send done count: {e:?}");
-                        break;
-                    }
-                }
-            }
+            join_workers(
+                worker_joiner_ctx,
+                worker_rx,
+                worker_joiner_tx,
+                worker_joiner_capacity,
+            )
         });
 
         let mut update = false;
@@ -229,6 +202,49 @@ where
         poll_tx
             .send(RunnerEvent::AcquiredJobs(jobs))
             .expect("to send acquired jobs")
+    }
+}
+
+#[tracing::instrument(skip(ctx))]
+fn join_workers(
+    ctx: Ctx<Background>,
+    worker_rx: Receiver<(Uuid, Option<JoinHandle<()>>)>,
+    worker_joiner_tx: SyncSender<u32>,
+    capacity: u32,
+) {
+    let mut handles = Vec::with_capacity(capacity as usize);
+
+    loop {
+        if ctx.is_done() {
+            tracing::debug!("Context is done");
+            return;
+        }
+
+        while let Ok(id_handle) = worker_rx.try_recv() {
+            handles.push(id_handle);
+        }
+
+        let mut done_count = 0;
+        handles.retain_mut(|(id, handle): &mut (Uuid, Option<JoinHandle<()>>)| {
+            if !handle.as_ref().unwrap().is_finished() {
+                return true;
+            }
+
+            tracing::debug!("Joining job id: {id:?}");
+            done_count += 1;
+            if let Err(e) = handle.take().unwrap().join() {
+                tracing::error!("Failed to join the worker thread: {e:?}");
+            };
+
+            false
+        });
+
+        if done_count > 0 {
+            if let Err(e) = worker_joiner_tx.send(done_count) {
+                tracing::error!("Failed to send done count: {e:?}");
+                break;
+            }
+        }
     }
 }
 
