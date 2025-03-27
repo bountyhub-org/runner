@@ -192,14 +192,23 @@ where
 
         let jobs = client.request(ctx.to_background(), &PollRequest { capacity })?;
         if jobs.is_empty() {
-            continue;
+            match joined_rx.recv() {
+                Ok(v) => {
+                    capacity += v;
+                    continue;
+                }
+                Err(e) => {
+                    tracing::debug!("Closed channel: {e:?}");
+                    return Ok(());
+                }
+            }
         }
 
         capacity -= jobs.len() as u32;
 
         poll_tx
             .send(RunnerEvent::AcquiredJobs(jobs))
-            .expect("to send acquired jobs")
+            .expect("to send acquired jobs");
     }
 }
 
@@ -218,8 +227,25 @@ fn join_workers(
             return;
         }
 
-        while let Ok(id_handle) = worker_rx.try_recv() {
-            handles.push(id_handle);
+        loop {
+            match worker_rx.try_recv() {
+                Ok(id_handle) => {
+                    tracing::debug!("Received handle {}", id_handle.0);
+                    handles.push(id_handle)
+                }
+                Err(TryRecvError::Empty) => {
+                    tracing::debug!("Empty");
+                    break;
+                }
+                Err(TryRecvError::Disconnected) => {
+                    tracing::debug!("Channel disconnected");
+                    return;
+                }
+            };
+        }
+
+        if handles.is_empty() {
+            continue;
         }
 
         let mut done_count = 0;
@@ -249,4 +275,167 @@ fn join_workers(
 pub trait WorkerBuilder {
     type Worker: worker::Worker;
     fn build(&self, job: JobAcquiredResponse) -> Result<Self::Worker>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use client::runner::MockRunnerClient;
+
+    #[test]
+    fn test_poll_loop_ctx_cancelled() {
+        let ctx = ctx::background();
+        let ctx = ctx.with_cancel();
+        ctx.cancel();
+
+        let rc = MockRunnerClient::new();
+        let (poll_tx, _poll_rx) = mpsc::sync_channel(1);
+        let (_joined_tx, joined_rx) = mpsc::sync_channel(1);
+
+        poll_loop(ctx.to_background(), rc, poll_tx, joined_rx, 1)
+            .expect("expected poll loop to exit with Ok(())");
+    }
+
+    #[test]
+    fn test_poll_loop_requests_properly() {
+        panic_after(Duration::from_secs(20), || {
+            let ctx = ctx::background();
+            let ctx = ctx.with_cancel();
+
+            let mut rc = MockRunnerClient::new();
+
+            let (poll_tx, poll_rx) = mpsc::sync_channel(1);
+            let (joined_tx, joined_rx) = mpsc::sync_channel(1);
+
+            rc.expect_request()
+                .returning(|_, req| {
+                    assert_eq!(req.capacity, 2);
+                    write_job_acquired_from_cap(2)
+                })
+                .once();
+
+            let joined_notifier_tx = joined_tx.clone();
+            rc.expect_request()
+                .returning(move |_, req| {
+                    assert_eq!(req.capacity, 0);
+                    let result = write_job_acquired_from_cap(0);
+                    joined_notifier_tx
+                        .send(1u32)
+                        .expect("joined notifier send error");
+                    result
+                })
+                .once();
+
+            rc.expect_request()
+                .returning(|_, req| {
+                    assert_eq!(req.capacity, 1);
+                    write_job_acquired_from_cap(1)
+                })
+                .once();
+
+            let poll_ctx = ctx.to_background();
+
+            thread::spawn(move || {
+                thread::sleep(Duration::from_secs(10));
+                ctx.cancel();
+            });
+
+            thread::spawn(move || {
+                poll_loop(poll_ctx, rc, poll_tx, joined_rx, 2)
+                    .expect("expected poll loop to exit with Ok(())");
+            });
+
+            let mut acquired = 0;
+            while let Ok(v) = poll_rx.recv() {
+                match v {
+                    RunnerEvent::AcquiredJobs(v) => {
+                        acquired += v.len();
+                    }
+                }
+            }
+
+            assert_eq!(3, acquired);
+        });
+    }
+
+    #[test]
+    fn test_join_workers_ctx_cancelled() {
+        let ctx = ctx::background();
+        let ctx = ctx.with_cancel();
+        ctx.cancel();
+
+        let (_worker_tx, worker_rx) = mpsc::sync_channel(1);
+        let (worker_joiner_tx, _worker_joiner_rx) = mpsc::sync_channel(1);
+
+        panic_after(Duration::from_secs(1), move || {
+            join_workers(ctx.to_background(), worker_rx, worker_joiner_tx, 1)
+        });
+    }
+
+    #[test]
+    fn test_join_workers_proper_count() {
+        panic_after(Duration::from_secs(10), || {
+            let ctx = ctx::background();
+            let ctx = ctx.with_cancel();
+            let (worker_tx, worker_rx) = mpsc::sync_channel(2);
+            let (worker_joiner_tx, worker_joiner_rx) = mpsc::sync_channel(2);
+
+            let join_ctx = ctx.to_background();
+            let join_handle = thread::spawn(move || {
+                join_workers(join_ctx, worker_rx, worker_joiner_tx, 2);
+            });
+
+            let h1 = thread::spawn(|| thread::sleep(Duration::from_secs(1)));
+            let h2 = thread::spawn(|| thread::sleep(Duration::from_millis(500)));
+
+            worker_tx
+                .send((Uuid::new_v4(), Some(h1)))
+                .expect("to send first handle");
+            worker_tx
+                .send((Uuid::new_v4(), Some(h2)))
+                .expect("to send second handle");
+
+            thread::spawn(move || {
+                thread::sleep(Duration::from_secs(5));
+                ctx.cancel();
+            });
+
+            let mut done = 0;
+            while let Ok(count) = worker_joiner_rx.recv() {
+                done += count;
+            }
+            join_handle.join().expect("To join the join handle");
+            assert_eq!(done, 2);
+        });
+    }
+
+    fn panic_after<T, F>(d: Duration, f: F) -> T
+    where
+        T: Send + 'static,
+        F: FnOnce() -> T,
+        F: Send + 'static,
+    {
+        let (done_tx, done_rx) = mpsc::channel();
+        let handle = thread::spawn(move || {
+            let val = f();
+            done_tx.send(()).expect("Unable to send completion signal");
+            val
+        });
+
+        match done_rx.recv_timeout(d) {
+            Ok(_) => handle.join().expect("Thread panicked"),
+            Err(_) => panic!("Thread took too long"),
+        }
+    }
+
+    fn write_job_acquired_from_cap(cap: usize) -> Result<Vec<JobAcquiredResponse>> {
+        let mut result = Vec::with_capacity(cap);
+        for _ in 0..cap {
+            result.push(JobAcquiredResponse {
+                id: Uuid::now_v7(),
+                token: Uuid::new_v4().to_string(),
+            });
+        }
+        Ok(result)
+    }
 }

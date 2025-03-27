@@ -1,4 +1,4 @@
-use ctx::{background, Background, Ctx};
+use ctx::{Background, Ctx, background};
 use std::{thread, time::Duration};
 
 fn main() {
@@ -24,11 +24,13 @@ fn main() {
 fn worker(ctx: Ctx<Background>) -> Result<(), String> {
     let timeout = ctx.with_cancel();
     let handle_ctx = timeout.clone();
-    let handle = thread::spawn(move || loop {
-        if handle_ctx.is_done() {
-            break;
+    let handle = thread::spawn(move || {
+        loop {
+            if handle_ctx.is_done() {
+                break;
+            }
+            thread::sleep(Duration::from_millis(100));
         }
-        thread::sleep(Duration::from_millis(100));
     });
 
     thread::spawn(move || {

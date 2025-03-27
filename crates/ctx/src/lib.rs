@@ -1,4 +1,4 @@
-use std::sync::{atomic::AtomicBool, Arc, Mutex, Weak};
+use std::sync::{Arc, Mutex, Weak, atomic::AtomicBool};
 
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct Background;

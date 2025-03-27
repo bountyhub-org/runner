@@ -1,5 +1,7 @@
-use miette::{miette, Diagnostic, IntoDiagnostic, LabeledSpan, Result, WrapErr};
+use miette::{Diagnostic, IntoDiagnostic, LabeledSpan, Result, WrapErr, bail, miette};
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
+use std::str::FromStr;
 use std::sync::{Arc, RwLock};
 use std::{fs, io};
 use thiserror::Error;
@@ -67,7 +69,7 @@ pub struct Config {
     pub invoker_url: String,
     pub fluxy_url: String,
     pub name: String,
-    pub workdir: String,
+    pub workdir: PathBuf,
     pub capacity: u32,
 }
 
@@ -79,7 +81,6 @@ impl Config {
         validate_url(&self.invoker_url).wrap_err("URL validation error")?;
         validate_url(&self.fluxy_url).wrap_err("URL validation error")?;
         validate_name(&self.name).wrap_err("Name validation error")?;
-        validate_workdir(&self.workdir).wrap_err("Workdir validation error")?;
         validate_capacity(self.capacity).wrap_err("Capacity validation error")?;
         Ok(())
     }
@@ -90,6 +91,22 @@ pub fn validate_token(token: &str) -> Result<()> {
     if token.len() < 10 {
         return Err(miette!("Token is too short").wrap_err(Error::ValidationError));
     }
+    Ok(())
+}
+
+pub fn validate_workdir(workdir: &PathBuf) -> Result<()> {
+    if workdir.is_file() {
+        bail!("Workdir {workdir:?} is file");
+    }
+
+    Ok(())
+}
+
+#[tracing::instrument(skip(workdir))]
+pub fn validate_workdir_str(workdir: &str) -> Result<()> {
+    PathBuf::from_str(workdir)
+        .into_diagnostic()
+        .wrap_err("Failed to parse workdir as path")?;
     Ok(())
 }
 
@@ -119,8 +136,7 @@ pub fn validate_url(url: &str) -> Result<()> {
 
 #[tracing::instrument]
 pub fn validate_name(name: &str) -> Result<()> {
-    const RUNNER_NAME_CONSTRAINT: &str =
-    "name must contain alphanumeric characters or dashes and be between 3 and 50 characters long";
+    const RUNNER_NAME_CONSTRAINT: &str = "name must contain alphanumeric characters or dashes and be between 3 and 50 characters long";
 
     if !(3..=50).contains(&name.len()) {
         return Err(miette!("Name length is invalid: {RUNNER_NAME_CONSTRAINT}")
@@ -142,14 +158,6 @@ pub fn validate_name(name: &str) -> Result<()> {
         }
     }
 
-    Ok(())
-}
-
-#[tracing::instrument]
-pub fn validate_workdir(workdir: &str) -> Result<()> {
-    if workdir.is_empty() {
-        return Err(miette!("Workdir is empty").wrap_err(Error::ValidationError));
-    }
     Ok(())
 }
 
@@ -200,10 +208,11 @@ fn test_runner_name_validation() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::env;
+    use std::{env, path::PathBuf};
 
+    #[derive(Debug, Clone)]
     struct TestDir {
-        dir: String,
+        dir: PathBuf,
     }
 
     impl Drop for TestDir {
@@ -216,12 +225,11 @@ mod tests {
 
     impl TestDir {
         fn init() -> Self {
-            let dir = env::temp_dir()
-                .join(Uuid::new_v4().to_string())
-                .to_string_lossy()
-                .to_string();
+            let dir = env::temp_dir().join(Uuid::new_v4().to_string());
             fs::create_dir_all(&dir).expect("create dir all should be ok");
+            assert!(dir.exists(), "Directory {dir:?} should exist");
             env::set_current_dir(&dir).expect("failed to set current dir");
+
             TestDir { dir }
         }
     }
@@ -247,7 +255,8 @@ mod tests {
             capacity: 1,
         };
         let cm = ConfigManager::new();
-        cm.put(&cfg).expect("to save config");
+        cm.put(&cfg)
+            .unwrap_or_else(|e| panic!("to save config to directory {test_dir:?}: {e:?}"));
         let got = cm.get().expect("to get the config");
         assert_eq!(cfg, got);
     }
