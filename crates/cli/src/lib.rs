@@ -1,7 +1,7 @@
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::{Shell, generate};
+use client::bountyhub::{BountyHubClient, RegistrationRequest, ReleaseResponse};
 use client::client_set::ClientSet;
-use client::registration::{RegistrationClient, RegistrationRequest};
 use client::runner::JobAcquiredResponse;
 use client::worker::HttpWorkerClient;
 use ctx::{Background, Ctx};
@@ -60,6 +60,8 @@ enum Commands {
         #[clap(subcommand)]
         action: ServiceCommands,
     },
+    #[command(about = "Upgrade runner")]
+    Upgrade {},
     #[command(arg_required_else_help = true)]
     Completion {
         #[arg(value_enum)]
@@ -120,7 +122,7 @@ impl Cli {
                     workdir,
                 };
 
-                let client = client_set.registration_client(&url);
+                let client = client_set.bountyhub_client(&url);
 
                 let response = client
                     .register(ctx, &request)
@@ -258,6 +260,19 @@ impl Cli {
                     .wrap_err("runner exited with error")?;
 
                 Ok(())
+            }
+            Commands::Upgrade {} => {
+                let client = client_set.bountyhub_client(&config_manager.get()?.hub_url);
+                let ReleaseResponse { version } = client
+                    .get_latest_runner_release(ctx.clone())
+                    .wrap_err("Failed to get the latest release version")?;
+
+                if version == config::VERSION {
+                    tracing::info!("Runner is already on the latest version {version}");
+                    return Ok(());
+                }
+
+                todo!("upgrade")
             }
             Commands::Completion { shell } => {
                 let mut cmd = Self::command();
