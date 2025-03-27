@@ -68,7 +68,7 @@ impl RunnerClient for HttpRunnerClient {
 
             (
                 format!("{}/api/v0/runners/hello", cfg.invoker_url),
-                format!("Runner {}", cfg.token),
+                format!("Bearer {}", cfg.token),
             )
         };
 
@@ -103,7 +103,7 @@ impl RunnerClient for HttpRunnerClient {
 
             (
                 format!("{}/api/v0/runners/goodbye", cfg.invoker_url),
-                format!("Runner {}", cfg.token),
+                format!("Bearer {}", cfg.token),
             )
         };
         let retry = || ctx.is_done();
@@ -135,7 +135,7 @@ impl RunnerClient for HttpRunnerClient {
             let cfg = self.config_manager.get()?;
             (
                 format!("{}/api/v0/jobs/request", cfg.invoker_url),
-                format!("Runner {}", cfg.token),
+                format!("Bearer {}", cfg.token),
             )
         };
         let retry = || ctx.is_done();
@@ -173,7 +173,7 @@ impl RunnerClient for HttpRunnerClient {
             let cfg = self.config_manager.get()?;
             (
                 format!("{}/api/v0/jobs/complete", cfg.invoker_url),
-                format!("Runner {}", cfg.token),
+                format!("Bearer {}", cfg.token),
             )
         };
         let retry = || ctx.is_done();

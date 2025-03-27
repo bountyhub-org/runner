@@ -229,7 +229,7 @@ impl WorkerClient for HttpWorkerClient {
                 "{}/api/v0/jobs/resolve",
                 self.config_manager.get()?.invoker_url
             ),
-            format!("RunnerWorker {}", self.token),
+            format!("Bearer {}", self.token),
         );
 
         let retry = || ctx.is_done();
@@ -268,7 +268,7 @@ impl WorkerClient for HttpWorkerClient {
                 "{}/api/v0/jobs/timeline",
                 self.config_manager.get()?.invoker_url
             ),
-            format!("RunnerWorker {}", self.token),
+            format!("Bearer {}", self.token),
         );
         let retry = || ctx.is_done();
 
@@ -298,7 +298,7 @@ impl WorkerClient for HttpWorkerClient {
     fn send_job_logs(&self, ctx: Ctx<Background>, logs: &[LogLine]) -> Result<()> {
         let (endpoint, token) = (
             format!("{}/api/v0/jobs/logs", &self.config_manager.get()?.fluxy_url),
-            format!("RunnerWorker {}", self.token),
+            format!("Bearer {}", self.token),
         );
 
         let retry = || ctx.is_done();
@@ -334,7 +334,7 @@ impl WorkerClient for HttpWorkerClient {
                 "{}/api/v0/jobs/results",
                 &self.config_manager.get()?.fluxy_url
             ),
-            format!("RunnerWorker {}", self.token),
+            format!("Bearer {}", self.token),
         );
         let retry = || ctx.is_done();
 
