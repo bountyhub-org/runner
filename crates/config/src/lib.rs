@@ -221,6 +221,7 @@ mod tests {
                 .to_string();
             fs::create_dir_all(&dir).expect("create dir all should be ok");
             env::set_current_dir(&dir).expect("failed to set current dir");
+
             TestDir { dir }
         }
     }
@@ -246,7 +247,8 @@ mod tests {
             capacity: 1,
         };
         let cm = ConfigManager::new();
-        cm.put(&cfg).expect("to save config");
+        cm.put(&cfg)
+            .unwrap_or_else(|e| panic!("to save config to directory {}: {e:?}", test_dir.dir));
         let got = cm.get().expect("to get the config");
         assert_eq!(cfg, got);
     }
