@@ -269,6 +269,18 @@ mod tests {
         let (poll_tx, _poll_rx) = mpsc::sync_channel(1);
         let (_joined_tx, joined_rx) = mpsc::sync_channel(1);
 
-        poll_loop(ctx.to_background(), rc, poll_tx, joined_rx, 1).expect("expected poll loop");
+        poll_loop(ctx.to_background(), rc, poll_tx, joined_rx, 1)
+            .expect("expected poll loop to exit with Ok(())");
+    }
+
+    #[test]
+    fn test_join_workers_ctx_cancelled() {
+        let ctx = ctx::background().with_cancel();
+        ctx.cancel();
+
+        let (_worker_tx, worker_rx) = mpsc::sync_channel(1);
+        let (worker_joiner_tx, _worker_joiner_rx) = mpsc::sync_channel(1);
+
+        join_workers(ctx.to_background(), worker_rx, worker_joiner_tx, 1);
     }
 }
