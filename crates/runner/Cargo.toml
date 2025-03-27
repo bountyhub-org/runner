@@ -20,3 +20,4 @@ worker = { path = "../worker" }
 
 [dev-dependencies]
 mockall = "0.13.0"
+client = { path = "../client", features = ["mockall"] }

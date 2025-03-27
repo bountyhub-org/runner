@@ -221,8 +221,25 @@ fn join_workers(
             return;
         }
 
-        while let Ok(id_handle) = worker_rx.try_recv() {
-            handles.push(id_handle);
+        loop {
+            match worker_rx.try_recv() {
+                Ok(id_handle) => {
+                    tracing::debug!("Received handle {}", id_handle.0);
+                    handles.push(id_handle)
+                }
+                Err(TryRecvError::Empty) => {
+                    tracing::debug!("Empty");
+                    break;
+                }
+                Err(TryRecvError::Disconnected) => {
+                    tracing::debug!("Channel disconnected");
+                    return;
+                }
+            };
+        }
+
+        if handles.is_empty() {
+            continue;
         }
 
         let mut done_count = 0;
@@ -281,6 +298,64 @@ mod tests {
         let (_worker_tx, worker_rx) = mpsc::sync_channel(1);
         let (worker_joiner_tx, _worker_joiner_rx) = mpsc::sync_channel(1);
 
-        join_workers(ctx.to_background(), worker_rx, worker_joiner_tx, 1);
+        panic_after(Duration::from_secs(1), move || {
+            join_workers(ctx.to_background(), worker_rx, worker_joiner_tx, 1)
+        });
+    }
+
+    #[test]
+    fn test_join_workers_proper_count() {
+        panic_after(Duration::from_secs(10),  || {
+            let ctx = ctx::background();
+            let ctx = ctx.with_cancel();
+            let (worker_tx, worker_rx) = mpsc::sync_channel(2);
+            let (worker_joiner_tx, worker_joiner_rx) = mpsc::sync_channel(2);
+
+            let join_ctx = ctx.to_background();
+            let join_handle = thread::spawn(move || {
+                join_workers(join_ctx, worker_rx, worker_joiner_tx, 2);
+            });
+
+            let h1 = thread::spawn(|| thread::sleep(Duration::from_secs(1)));
+            let h2 = thread::spawn(|| thread::sleep(Duration::from_millis(500)));
+
+            worker_tx
+                .send((Uuid::new_v4(), Some(h1)))
+                .expect("to send first handle");
+            worker_tx
+                .send((Uuid::new_v4(), Some(h2)))
+                .expect("to send second handle");
+
+            thread::spawn(move || {
+                thread::sleep(Duration::from_secs(5));
+                ctx.cancel();
+            });
+
+            let mut done = 0;
+            while let Ok(count) = worker_joiner_rx.recv() {
+                done += count;
+            }
+            join_handle.join().expect("To join the join handle");
+            assert_eq!(done, 2);
+        });
+    }
+
+    fn panic_after<T, F>(d: Duration, f: F) -> T
+    where
+        T: Send + 'static,
+        F: FnOnce() -> T,
+        F: Send + 'static,
+    {
+        let (done_tx, done_rx) = mpsc::channel();
+        let handle = thread::spawn(move || {
+            let val = f();
+            done_tx.send(()).expect("Unable to send completion signal");
+            val
+        });
+
+        match done_rx.recv_timeout(d) {
+            Ok(_) => handle.join().expect("Thread panicked"),
+            Err(_) => panic!("Thread took too long"),
+        }
     }
 }
