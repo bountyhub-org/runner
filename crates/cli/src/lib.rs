@@ -272,7 +272,21 @@ impl Cli {
                     return Ok(());
                 }
 
-                todo!("upgrade")
+                self_update::backends::github::Update::configure()
+                    .repo_owner("bountyhub-org")
+                    .repo_name("runner")
+                    .bin_name("runner")
+                    .show_download_progress(true)
+                    .current_version(config::VERSION)
+                    .target_version_tag(version.as_str())
+                    .build()
+                    .into_diagnostic()
+                    .wrap_err("Failed to build the self update request")?
+                    .update()
+                    .into_diagnostic()
+                    .wrap_err("Failed to update")?;
+
+                Ok(())
             }
             Commands::Completion { shell } => {
                 let mut cmd = Self::command();
