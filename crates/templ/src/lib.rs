@@ -84,9 +84,10 @@ mod tests {
     #[test]
     fn test_missing_closing() {
         let err = Template::from_str("hello ${{name!").unwrap_err();
-        assert!(err
-            .to_string()
-            .contains("Missing closing template delimiter"));
+        assert!(
+            err.to_string()
+                .contains("Missing closing template delimiter")
+        );
     }
 
     #[test]

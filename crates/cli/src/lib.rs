@@ -1,11 +1,11 @@
 use clap::{CommandFactory, Parser, Subcommand};
-use clap_complete::{generate, Shell};
+use clap_complete::{Shell, generate};
 use client::client_set::ClientSet;
 use client::registration::{RegistrationClient, RegistrationRequest};
 use client::runner::JobAcquiredResponse;
 use client::worker::HttpWorkerClient;
 use ctx::{Background, Ctx};
-use miette::{bail, IntoDiagnostic, Result, WrapErr};
+use miette::{IntoDiagnostic, Result, WrapErr, bail};
 use runner::Runner;
 use std::io::{self, Write};
 use std::sync::Arc;

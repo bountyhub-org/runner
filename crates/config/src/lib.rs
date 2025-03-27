@@ -1,4 +1,4 @@
-use miette::{miette, Diagnostic, IntoDiagnostic, LabeledSpan, Result, WrapErr};
+use miette::{Diagnostic, IntoDiagnostic, LabeledSpan, Result, WrapErr, miette};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, RwLock};
 use std::{fs, io};
@@ -119,8 +119,7 @@ pub fn validate_url(url: &str) -> Result<()> {
 
 #[tracing::instrument]
 pub fn validate_name(name: &str) -> Result<()> {
-    const RUNNER_NAME_CONSTRAINT: &str =
-    "name must contain alphanumeric characters or dashes and be between 3 and 50 characters long";
+    const RUNNER_NAME_CONSTRAINT: &str = "name must contain alphanumeric characters or dashes and be between 3 and 50 characters long";
 
     if !(3..=50).contains(&name.len()) {
         return Err(miette!("Name length is invalid: {RUNNER_NAME_CONSTRAINT}")
