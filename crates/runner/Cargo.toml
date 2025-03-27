@@ -20,4 +20,5 @@ worker = { path = "../worker" }
 
 [dev-dependencies]
 mockall = "0.13.0"
+uuid = { version = "1", features = ["v4", "v7"] }
 client = { path = "../client", features = ["mockall"] }

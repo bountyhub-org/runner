@@ -192,8 +192,16 @@ where
 
         let jobs = client.request(ctx.to_background(), &PollRequest { capacity })?;
         if jobs.is_empty() {
-            thread::sleep(Duration::from_secs(5));
-            continue;
+            match joined_rx.recv() {
+                Ok(v) => {
+                    capacity += v;
+                    continue;
+                }
+                Err(e) => {
+                    tracing::debug!("Closed channel: {e:?}");
+                    return Ok(());
+                }
+            }
         }
 
         capacity -= jobs.len() as u32;
@@ -201,8 +209,6 @@ where
         poll_tx
             .send(RunnerEvent::AcquiredJobs(jobs))
             .expect("to send acquired jobs");
-
-        thread::sleep(Duration::from_secs(5));
     }
 }
 
@@ -274,12 +280,12 @@ pub trait WorkerBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::poll_loop;
     use client::runner::MockRunnerClient;
 
     #[test]
     fn test_poll_loop_ctx_cancelled() {
-        let ctx = ctx::background().with_cancel();
+        let ctx = ctx::background();
+        let ctx = ctx.with_cancel();
         ctx.cancel();
 
         let rc = MockRunnerClient::new();
@@ -291,8 +297,71 @@ mod tests {
     }
 
     #[test]
+    fn test_poll_loop_requests_properly() {
+        panic_after(Duration::from_secs(20), || {
+            let ctx = ctx::background();
+            let ctx = ctx.with_cancel();
+
+            let mut rc = MockRunnerClient::new();
+
+            let (poll_tx, poll_rx) = mpsc::sync_channel(1);
+            let (joined_tx, joined_rx) = mpsc::sync_channel(1);
+
+            rc.expect_request()
+                .returning(|_, req| {
+                    assert_eq!(req.capacity, 2);
+                    write_job_acquired_from_cap(2)
+                })
+                .once();
+
+            let joined_notifier_tx = joined_tx.clone();
+            rc.expect_request()
+                .returning(move |_, req| {
+                    assert_eq!(req.capacity, 0);
+                    let result = write_job_acquired_from_cap(0);
+                    joined_notifier_tx
+                        .send(1u32)
+                        .expect("joined notifier send error");
+                    result
+                })
+                .once();
+
+            rc.expect_request()
+                .returning(|_, req| {
+                    assert_eq!(req.capacity, 1);
+                    write_job_acquired_from_cap(1)
+                })
+                .once();
+
+            let poll_ctx = ctx.to_background();
+
+            thread::spawn(move || {
+                thread::sleep(Duration::from_secs(10));
+                ctx.cancel();
+            });
+
+            thread::spawn(move || {
+                poll_loop(poll_ctx, rc, poll_tx, joined_rx, 2)
+                    .expect("expected poll loop to exit with Ok(())");
+            });
+
+            let mut acquired = 0;
+            while let Ok(v) = poll_rx.recv() {
+                match v {
+                    RunnerEvent::AcquiredJobs(v) => {
+                        acquired += v.len();
+                    }
+                }
+            }
+
+            assert_eq!(3, acquired);
+        });
+    }
+
+    #[test]
     fn test_join_workers_ctx_cancelled() {
-        let ctx = ctx::background().with_cancel();
+        let ctx = ctx::background();
+        let ctx = ctx.with_cancel();
         ctx.cancel();
 
         let (_worker_tx, worker_rx) = mpsc::sync_channel(1);
@@ -305,7 +374,7 @@ mod tests {
 
     #[test]
     fn test_join_workers_proper_count() {
-        panic_after(Duration::from_secs(10),  || {
+        panic_after(Duration::from_secs(10), || {
             let ctx = ctx::background();
             let ctx = ctx.with_cancel();
             let (worker_tx, worker_rx) = mpsc::sync_channel(2);
@@ -357,5 +426,16 @@ mod tests {
             Ok(_) => handle.join().expect("Thread panicked"),
             Err(_) => panic!("Thread took too long"),
         }
+    }
+
+    fn write_job_acquired_from_cap(cap: usize) -> Result<Vec<JobAcquiredResponse>> {
+        let mut result = Vec::with_capacity(cap);
+        for _ in 0..cap {
+            result.push(JobAcquiredResponse {
+                id: Uuid::now_v7(),
+                token: Uuid::new_v4().to_string(),
+            });
+        }
+        Ok(result)
     }
 }

@@ -3,7 +3,7 @@ use cellang::Value;
 use client::worker::{LogLine, TimelineRequestStepState};
 use client::worker::{TimelineRequest, TimelineRequestStepOutcome, WorkerClient};
 use ctx::{Background, Ctx};
-use miette::{bail, IntoDiagnostic, Result, WrapErr};
+use miette::{IntoDiagnostic, Result, WrapErr, bail};
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader};
 use std::path::{Component, Path, PathBuf};
@@ -13,8 +13,8 @@ use std::thread;
 use std::thread::JoinHandle;
 use std::time::Duration;
 use uuid::Uuid;
-use zip::write::{FileOptionExtension, FileOptions, SimpleFileOptions};
 use zip::ZipWriter;
+use zip::write::{FileOptionExtension, FileOptions, SimpleFileOptions};
 
 pub trait Step {
     fn run(&self, ctx: Ctx<Background>) -> Result<bool>;
@@ -308,7 +308,10 @@ where
                         .wrap_err("Failed to send the log line")?;
                     tracing::info!("Received cancellation signal. Killing child process");
                     if let Err(err) = child.kill() {
-                        tracing::error!("Failed to kill child process: {}. Command might still execute in the background", err);
+                        tracing::error!(
+                            "Failed to kill child process: {}. Command might still execute in the background",
+                            err
+                        );
                     } else {
                         tracing::info!("Killed child process");
                     }
