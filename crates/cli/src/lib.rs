@@ -275,6 +275,7 @@ impl Cli {
                 self_update::backends::github::Update::configure()
                     .repo_owner("bountyhub-org")
                     .repo_name("runner")
+                    .bin_path_in_archive("{{ bin }}")
                     .bin_name("runner")
                     .show_download_progress(true)
                     .current_version(config::VERSION)
