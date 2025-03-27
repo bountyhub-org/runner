@@ -8,6 +8,8 @@ use ctx::{Background, Ctx};
 use miette::{IntoDiagnostic, Result, WrapErr, bail};
 use runner::Runner;
 use std::io::{self, Write};
+use std::path::PathBuf;
+use std::str::FromStr;
 use std::sync::Arc;
 use sudoservice::service::Service;
 use sudoservice::systemd::{Config as SystemdConfig, Systemd};
@@ -109,7 +111,7 @@ impl Cli {
                 config::validate_name(&name).wrap_err("Invalid name")?;
                 config::validate_url(&url).wrap_err("Invalid URL")?;
                 config::validate_token(&token).wrap_err("Invalid token")?;
-                config::validate_workdir(&workdir).wrap_err("Invalid workdir")?;
+                config::validate_workdir_str(&workdir).wrap_err("Invalid workdir")?;
                 config::validate_capacity(capacity).wrap_err("Invalid capacity")?;
 
                 let request = RegistrationRequest {
@@ -130,7 +132,9 @@ impl Cli {
                     invoker_url: response.invoker_url,
                     fluxy_url: response.fluxy_url,
                     name: request.name,
-                    workdir: request.workdir,
+                    workdir: PathBuf::from_str(&request.workdir)
+                        .into_diagnostic()
+                        .wrap_err("Failed to parse workdir")?,
                     capacity,
                 };
 

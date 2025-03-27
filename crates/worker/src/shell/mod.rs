@@ -4,6 +4,7 @@ use client::runner::JobAcquiredResponse;
 use client::worker::{Step, WorkerClient};
 use ctx::{Background, Ctx};
 use miette::{Result, WrapErr};
+use std::path::PathBuf;
 use std::{path::Path, sync::Arc};
 use step::{CommandStep, SetupStep, Step as ShellStep, TeardownStep, UploadStep};
 
@@ -15,7 +16,7 @@ pub struct ShellWorker<C>
 where
     C: WorkerClient,
 {
-    pub root_workdir: String,
+    pub root_workdir: PathBuf,
     pub envs: Arc<Vec<(String, String)>>,
     pub client: C,
     pub job: JobAcquiredResponse,
