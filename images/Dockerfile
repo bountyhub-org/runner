@@ -1,4 +1,4 @@
-FROM --platform=$BUILDPLATFORM rust:1.82 AS base
+FROM --platform=$BUILDPLATFORM rust:1.85.1 AS base
 
 RUN cargo install sccache --version ^0.8
 RUN cargo install cargo-chef --version ^0.1
@@ -26,7 +26,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
     SKIP_TWIRP_GENERATION=1 cargo build --release -p cli
 
-FROM --platform=$BUILDPLATFORM rust:1.82 AS tools
+FROM --platform=$BUILDPLATFORM rust:1.85.1 AS tools
 
 RUN cargo install bh
 
