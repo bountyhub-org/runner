@@ -229,7 +229,6 @@ mod tests {
             let dir = env::temp_dir().join(Uuid::new_v4().to_string());
             fs::create_dir_all(&dir).expect("create dir all should be ok");
             assert!(dir.exists(), "Directory {dir:?} should exist");
-            env::set_current_dir(&dir).expect("failed to set current dir");
 
             TestDir { dir }
         }
