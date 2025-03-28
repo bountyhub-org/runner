@@ -300,7 +300,7 @@ checksum = "f46ad14479a25103f283c0f10005961cf086d8dc42205bb44c46ac563475dca6"
 
 [[package]]
 name = "cli"
-version = "0.4.1"
+version = "0.4.0"
 dependencies = [
  "clap",
  "clap_complete",
@@ -320,7 +320,7 @@ dependencies = [
 
 [[package]]
 name = "client"
-version = "0.4.1"
+version = "0.4.0"
 dependencies = [
  "cellang",
  "config",
@@ -357,7 +357,7 @@ dependencies = [
 
 [[package]]
 name = "config"
-version = "0.4.1"
+version = "0.4.0"
 dependencies = [
  "hostname",
  "miette",
@@ -510,7 +510,7 @@ dependencies = [
 
 [[package]]
 name = "ctx"
-version = "0.4.1"
+version = "0.4.0"
 
 [[package]]
 name = "curve25519-dalek"
@@ -1227,7 +1227,7 @@ checksum = "8eaf4bc02d17cbdd7ff4c7438cafcdf7fb9a4613313ad11b4f8fefe7d3fa0130"
 
 [[package]]
 name = "jobengine"
-version = "0.4.1"
+version = "0.4.0"
 dependencies = [
  "cellang",
  "miette",
@@ -1766,7 +1766,7 @@ dependencies = [
 
 [[package]]
 name = "recoil"
-version = "0.4.1"
+version = "0.4.0"
 dependencies = [
  "rand",
 ]
@@ -1873,7 +1873,7 @@ dependencies = [
 
 [[package]]
 name = "runner"
-version = "0.4.1"
+version = "0.4.0"
 dependencies = [
  "client",
  "config",
@@ -2369,7 +2369,7 @@ dependencies = [
 
 [[package]]
 name = "templ"
-version = "0.4.1"
+version = "0.4.0"
 dependencies = [
  "miette",
  "serde",
@@ -3253,7 +3253,7 @@ dependencies = [
 
 [[package]]
 name = "worker"
-version = "0.4.1"
+version = "0.4.0"
 dependencies = [
  "cellang",
  "client",
