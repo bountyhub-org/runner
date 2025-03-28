@@ -5,7 +5,7 @@ use client::worker::{Step, WorkerClient};
 use ctx::{Background, Ctx};
 use miette::{Result, WrapErr};
 use std::path::PathBuf;
-use std::{path::Path, sync::Arc};
+use std::sync::Arc;
 use step::{CommandStep, SetupStep, Step as ShellStep, TeardownStep, UploadStep};
 
 pub mod execution_context;
@@ -36,13 +36,8 @@ where
         tracing::info!("Resolved job: {}", job.cfg.name);
 
         tracing::info!("Building execution context");
-        let workdir = Path::new(&self.root_workdir)
-            .join(job.cfg.id.to_string())
-            .to_str()
-            .unwrap()
-            .to_string();
-
-        let mut execution_context = ExecutionContext::new(workdir, self.envs.clone(), job.cfg);
+        let mut execution_context =
+            ExecutionContext::new(self.root_workdir.clone(), self.envs.clone(), job.cfg);
 
         for (index, step) in job.steps.iter().enumerate() {
             let index = index as u32;

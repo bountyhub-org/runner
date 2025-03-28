@@ -125,7 +125,7 @@ where
             .post_step_timeline(ctx.clone(), &timeline_request)
             .wrap_err("Failed to post step timeline")?;
 
-        tracing::debug!("Creating job workdir {workdir:?}");
+        tracing::debug!("Removing job workdir {workdir:?}");
         match fs::remove_dir_all(workdir) {
             Ok(_) => {
                 let msg = format!("Sucessfully removed job workdir {workdir:?}");
@@ -877,7 +877,7 @@ mod tests {
     use zip::ZipArchive;
 
     struct TestDir {
-        dir: String,
+        dir: PathBuf,
     }
 
     impl Drop for TestDir {
@@ -890,10 +890,7 @@ mod tests {
 
     impl TestDir {
         fn init() -> Self {
-            let dir = env::temp_dir()
-                .join(Uuid::new_v4().to_string())
-                .to_string_lossy()
-                .to_string();
+            let dir = env::temp_dir().join(Uuid::new_v4().to_string());
             fs::create_dir_all(&dir).expect("create dir all should be ok");
             TestDir { dir }
         }
@@ -1408,7 +1405,7 @@ mod tests {
     fn test_normalize_abs_path_cannot_escape() {
         let test_dir = TestDir::init();
         let path = PathBuf::from("../../../../../etc/hosts");
-        let result = normalize_abs_path(&PathBuf::from(test_dir.dir.as_str()), &path);
+        let result = normalize_abs_path(&test_dir.dir, &path);
         assert!(result.is_err(), "Expected error, got {result:?}");
     }
 
