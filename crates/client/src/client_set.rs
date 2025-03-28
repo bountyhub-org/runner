@@ -1,4 +1,4 @@
-use crate::registration::HttpRegistrationClient;
+use crate::bountyhub::HttpBountyHubClient;
 use crate::runner::HttpRunnerClient;
 use crate::worker::HttpWorkerClient;
 use config::ConfigManager;
@@ -25,7 +25,7 @@ pub struct ClientSetConfig {
 struct InnerClientSet {
     runner_client: HttpRunnerClient,
     worker_client: HttpWorkerClient,
-    registration_client: HttpRegistrationClient,
+    bountyhub_client: HttpBountyHubClient,
 }
 
 impl InnerClientSet {
@@ -85,7 +85,7 @@ impl InnerClientSet {
                 ),
                 token: String::default(),
             },
-            registration_client: HttpRegistrationClient {
+            bountyhub_client: HttpBountyHubClient {
                 recoil: cfg.recoil,
                 client: ureq::Agent::new_with_config(
                     ureq::Agent::config_builder()
@@ -122,8 +122,8 @@ impl ClientSet {
     }
 
     #[inline]
-    pub fn registration_client(&self, url: &str) -> HttpRegistrationClient {
-        let mut client = self.inner.registration_client.clone();
+    pub fn bountyhub_client(&self, url: &str) -> HttpBountyHubClient {
+        let mut client = self.inner.bountyhub_client.clone();
         client.url = url.to_string();
         client
     }

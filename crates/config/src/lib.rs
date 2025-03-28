@@ -10,6 +10,7 @@ use uuid::Uuid;
 
 pub const CONFIG_FILE: &str = ".runner";
 pub const RUNNER_VERSION: &str = env!("CARGO_PKG_VERSION");
+pub const VERSION: &str = env!("BUILD_VERSION");
 
 /// Manages the configuration by reading/writing and caching it internally
 /// If the configuration file changes, it doesn't matter. We source it once,

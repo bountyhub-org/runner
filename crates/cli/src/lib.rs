@@ -1,7 +1,7 @@
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::{Shell, generate};
+use client::bountyhub::{BountyHubClient, RegistrationRequest, ReleaseResponse};
 use client::client_set::ClientSet;
-use client::registration::{RegistrationClient, RegistrationRequest};
 use client::runner::JobAcquiredResponse;
 use client::worker::HttpWorkerClient;
 use ctx::{Background, Ctx};
@@ -60,6 +60,8 @@ enum Commands {
         #[clap(subcommand)]
         action: ServiceCommands,
     },
+    #[command(about = "Upgrade runner")]
+    Upgrade {},
     #[command(arg_required_else_help = true)]
     Completion {
         #[arg(value_enum)]
@@ -120,7 +122,7 @@ impl Cli {
                     workdir,
                 };
 
-                let client = client_set.registration_client(&url);
+                let client = client_set.bountyhub_client(&url);
 
                 let response = client
                     .register(ctx, &request)
@@ -256,6 +258,34 @@ impl Cli {
                 runner
                     .run(ctx.clone(), runner_client)
                     .wrap_err("runner exited with error")?;
+
+                Ok(())
+            }
+            Commands::Upgrade {} => {
+                let client = client_set.bountyhub_client(&config_manager.get()?.hub_url);
+                let ReleaseResponse { version } = client
+                    .get_latest_runner_release(ctx.clone())
+                    .wrap_err("Failed to get the latest release version")?;
+
+                if version == config::VERSION {
+                    tracing::info!("Runner is already on the latest version {version}");
+                    return Ok(());
+                }
+
+                self_update::backends::github::Update::configure()
+                    .repo_owner("bountyhub-org")
+                    .repo_name("runner")
+                    .bin_path_in_archive("{{ bin }}-{{ version }}-{{ target }}/{{ bin }}")
+                    .bin_name("runner")
+                    .show_download_progress(true)
+                    .current_version(config::VERSION)
+                    .target_version_tag(version.as_str())
+                    .build()
+                    .into_diagnostic()
+                    .wrap_err("Failed to build the self update request")?
+                    .update()
+                    .into_diagnostic()
+                    .wrap_err("Failed to update")?;
 
                 Ok(())
             }

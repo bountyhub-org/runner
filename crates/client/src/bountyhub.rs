@@ -23,45 +23,55 @@ pub struct RegistrationResponse {
     pub fluxy_url: String,
 }
 
-pub trait RegistrationClient: Send + Sync + Clone {
+#[derive(Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ReleaseResponse {
+    pub version: String,
+}
+
+pub trait BountyHubClient: Send + Sync + Clone {
     fn register(
         &self,
         ctx: Ctx<Background>,
         request: &RegistrationRequest,
     ) -> Result<RegistrationResponse>;
+
+    fn get_latest_runner_release(&self, ctx: Ctx<Background>) -> Result<ReleaseResponse>;
 }
 
 #[cfg(feature = "mockall")]
 mock! {
-    pub RegistrationClient {}
+    pub BountyHubClient {}
 
-    impl Clone for RegistrationClient {
+    impl Clone for BountyHubClient {
         fn clone(&self) -> Self;
     }
 
-    impl RegistrationClient for RegistrationClient {
+    impl BountyHubClient for BountyHubClient {
         fn register(
             &self,
             ctx: Ctx<Background>,
             request: &RegistrationRequest,
         ) -> Result<RegistrationResponse>;
+
+        fn get_latest_runner_release(&self, ctx: Ctx<Background>) -> Result<ReleaseResponse>;
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct HttpRegistrationClient {
+pub struct HttpBountyHubClient {
     pub url: String,
     pub client: ureq::Agent,
     pub recoil: Recoil,
 }
 
-impl RegistrationClient for HttpRegistrationClient {
+impl BountyHubClient for HttpBountyHubClient {
     fn register(
         &self,
         ctx: Ctx<Background>,
         req: &RegistrationRequest,
     ) -> Result<RegistrationResponse> {
-        let endpoint = format!("{}/api/v0/runner-registrations/register", self.url,);
+        let endpoint = format!("{}/api/v0/runner-registrations/register", self.url);
 
         let retry = || ctx.is_done();
         let mut result = self
@@ -87,6 +97,35 @@ impl RegistrationClient for HttpRegistrationClient {
         Ok(result
             .body_mut()
             .read_json::<RegistrationResponse>()
+            .map_err(ClientError::from)?)
+    }
+
+    fn get_latest_runner_release(&self, ctx: Ctx<Background>) -> Result<ReleaseResponse> {
+        let endpoint = format!("{}/api/v0/runners/releases/latest", self.url);
+        let retry = || ctx.is_done();
+        let mut result = self
+            .recoil
+            .run(|| {
+                if ctx.is_done() {
+                    return State::Fail(ClientError::CancellationError);
+                }
+                match self
+                    .client
+                    .get(&endpoint)
+                    .header("Content-Type", "application/json")
+                    .call()
+                    .map_err(ClientError::from)
+                {
+                    Ok(res) => State::Done(res),
+                    Err(e) if e.is_retryable() => State::Retry(retry),
+                    Err(e) => State::Fail(e),
+                }
+            })
+            .map_err(ClientError::from)?;
+
+        Ok(result
+            .body_mut()
+            .read_json::<ReleaseResponse>()
             .map_err(ClientError::from)?)
     }
 }
