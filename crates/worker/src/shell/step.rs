@@ -125,7 +125,7 @@ where
             .post_step_timeline(ctx.clone(), &timeline_request)
             .wrap_err("Failed to post step timeline")?;
 
-        tracing::debug!("Creating job workdir {workdir:?}");
+        tracing::debug!("Removing job workdir {workdir:?}");
         match fs::remove_dir_all(workdir) {
             Ok(_) => {
                 let msg = format!("Sucessfully removed job workdir {workdir:?}");

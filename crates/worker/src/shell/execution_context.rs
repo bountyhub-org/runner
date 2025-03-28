@@ -6,7 +6,7 @@ use uuid::Uuid;
 
 #[derive(Debug)]
 pub struct ExecutionContext {
-    workdir: String,
+    workdir: PathBuf,
     job_dir: PathBuf,
     envs: Arc<Vec<(String, String)>>,
     cfg: jobengine::Config,
@@ -16,7 +16,7 @@ pub struct ExecutionContext {
 
 impl ExecutionContext {
     #[tracing::instrument]
-    pub fn new(workdir: String, envs: Arc<Vec<(String, String)>>, cfg: jobengine::Config) -> Self {
+    pub fn new(workdir: PathBuf, envs: Arc<Vec<(String, String)>>, cfg: jobengine::Config) -> Self {
         let engine = JobEngine::new(&cfg);
 
         let mut envs = envs.iter().cloned().collect::<Vec<(String, String)>>();
@@ -61,7 +61,7 @@ impl ExecutionContext {
     }
 
     #[inline]
-    pub fn workdir(&self) -> &str {
+    pub fn workdir(&self) -> &PathBuf {
         &self.workdir
     }
 
@@ -118,7 +118,7 @@ impl ExecutionContext {
 mod tests {
     use super::*;
     use jobengine::{JobMeta, ProjectMeta, WorkflowMeta, WorkflowRevisionMeta};
-    use std::{collections::BTreeMap, sync::Arc};
+    use std::{collections::BTreeMap, env, sync::Arc};
     use uuid::Uuid;
 
     #[test]
@@ -150,7 +150,7 @@ mod tests {
             envs: BTreeMap::new(),
         };
         let ctx = super::ExecutionContext::new(
-            "workdir".to_string(),
+            env::temp_dir(),
             Arc::new(vec![("key".to_string(), "value".to_string())]),
             job_config.clone(),
         );
@@ -216,7 +216,7 @@ mod tests {
         };
 
         let mut ctx = super::ExecutionContext::new(
-            "workdir".to_string(),
+            env::temp_dir(),
             Arc::new(vec![("key".to_string(), "value".to_string())]),
             job_config.clone(),
         );
@@ -236,7 +236,7 @@ mod tests {
         let job_id = Uuid::now_v7();
 
         let ctx = super::ExecutionContext::new(
-            "workdir".to_string(),
+            env::temp_dir(),
             Arc::new(vec![("key".to_string(), "value".to_string())]),
             jobengine::Config {
                 id: job_id,
