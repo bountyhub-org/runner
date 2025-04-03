@@ -8,7 +8,7 @@ use std::fs::{self, File};
 use std::io::{BufRead, BufReader};
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::mpsc::{self, SyncSender, TryRecvError};
+use std::sync::mpsc::{self, Receiver, SyncSender, TryRecvError};
 use std::thread;
 use std::thread::JoinHandle;
 use std::time::Duration;
@@ -257,37 +257,8 @@ where
 
         let log_ctx = ctx.clone();
         let worker_client = self.worker_client.clone();
-        let log_pusher: JoinHandle<Result<()>> = thread::spawn(move || {
-            let mut buf = Vec::with_capacity(100);
-
-            let mut done = false;
-            while !done {
-                buf.clear();
-                for _ in 0..100 {
-                    match log_rx.try_recv() {
-                        Ok(line) => buf.push(line),
-                        Err(TryRecvError::Empty) => {
-                            done = true;
-                            break;
-                        }
-                        Err(TryRecvError::Disconnected) => return Ok(()),
-                    }
-                }
-
-                if buf.is_empty() {
-                    thread::sleep(Duration::from_secs(1));
-                    continue;
-                }
-
-                worker_client
-                    .send_job_logs(log_ctx.clone(), &buf)
-                    .wrap_err("Failed to send job log")?;
-
-                thread::sleep(Duration::from_secs(1));
-            }
-
-            Ok(())
-        });
+        let log_pusher: JoinHandle<Result<()>> =
+            thread::spawn(move || push_logs(log_ctx, log_rx, worker_client));
 
         tracing::info!("Waiting for command to finish");
         let index = self.index;
@@ -349,7 +320,24 @@ where
                 }
             }
         }
+        drop(log_tx);
 
+        tracing::debug!("Waiting stdout handle to be joined");
+        if let Err(e) = stdout_handle.join().expect("Failed to join stdout handle") {
+            tracing::error!("Stdout handle returned an error, trying to move on: {e:?}");
+        };
+
+        tracing::debug!("Waiting stderr handle to be joined");
+        if let Err(e) = stderr_handle.join().expect("Failed to join stderr handle") {
+            tracing::error!("Stderr handle returned an error, trying to move on: {e:?}");
+        };
+
+        tracing::debug!("Waiting log pusher handle to be joined");
+        if let Err(e) = log_pusher.join().expect("Failed to join log pusher handle") {
+            tracing::error!("Pushing logs returned an error, trying to move on: {e:?}");
+        };
+
+        tracing::info!("Calling final wait");
         let ok = match child.wait() {
             Ok(out) => {
                 let code = out.code().unwrap_or(1);
@@ -384,21 +372,6 @@ where
 
                 self.allow_failed
             }
-        };
-
-        tracing::debug!("Waiting stdout handle to be joined");
-        if let Err(e) = stdout_handle.join().expect("Failed to join stdout handle") {
-            tracing::error!("Stdout handle returned an error, trying to move on: {e:?}");
-        };
-
-        tracing::debug!("Waiting stderr handle to be joined");
-        if let Err(e) = stderr_handle.join().expect("Failed to join stderr handle") {
-            tracing::error!("Stderr handle returned an error, trying to move on: {e:?}");
-        };
-
-        tracing::debug!("Waiting log pusher handle to be joined");
-        if let Err(e) = log_pusher.join().expect("Failed to join log pusher handle") {
-            tracing::error!("Pushing logs returned an error, trying to move on: {e:?}");
         };
 
         Ok(ok)
@@ -759,6 +732,42 @@ where
             tracing::error!("Failed to send stdout to channel, stopping the stream: {e:?}");
             bail!("stdout send failed");
         };
+    }
+    Ok(())
+}
+
+fn push_logs<C>(ctx: Ctx<Background>, log_rx: Receiver<LogLine>, worker_client: C) -> Result<()>
+where
+    C: WorkerClient,
+{
+    let mut buf = Vec::with_capacity(100);
+
+    let mut done = false;
+    while !done {
+        buf.clear();
+        for _ in 0..50 {
+            match log_rx.try_recv() {
+                Ok(line) => buf.push(line),
+                Err(TryRecvError::Empty) => {
+                    break;
+                }
+                Err(TryRecvError::Disconnected) => {
+                    done = true;
+                    break;
+                }
+            }
+        }
+
+        if buf.is_empty() {
+            thread::sleep(Duration::from_millis(500));
+            continue;
+        }
+
+        worker_client
+            .send_job_logs(ctx.clone(), &buf)
+            .wrap_err("Failed to send job log")?;
+
+        thread::sleep(Duration::from_millis(500));
     }
     Ok(())
 }

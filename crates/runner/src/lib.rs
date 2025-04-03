@@ -228,6 +228,7 @@ fn join_workers(
         }
 
         loop {
+            thread::sleep(Duration::from_millis(500));
             match worker_rx.try_recv() {
                 Ok(id_handle) => {
                     tracing::debug!("Received handle {}", id_handle.0);
