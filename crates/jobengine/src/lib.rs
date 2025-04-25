@@ -13,9 +13,12 @@ pub struct Config {
     pub id: Uuid,
     /// The name of the job from which the evaluation is done
     pub name: String,
-    /// Variables associated with the workflow
+    /// Variables associated with the project
     #[serde(default)]
     pub vars: BTreeMap<String, String>,
+    /// Secrets associated with the project
+    #[serde(default)]
+    pub secrets: BTreeMap<String, String>,
     /// Workflow environment variables
     #[serde(default)]
     pub envs: BTreeMap<String, String>,
@@ -73,6 +76,16 @@ impl JobEngine {
                 .collect::<Map>(),
         )
         .expect("failed to add vars");
+        ctx.set_variable(
+            "secrets",
+            config
+                .secrets
+                .clone()
+                .into_iter()
+                .map(|(k, v)| (k.into(), v.into()))
+                .collect::<Map>(),
+        )
+        .expect("failed to add secrets");
         ctx.set_variable(
             "inputs",
             match &config.inputs {
@@ -333,6 +346,7 @@ mod tests {
             id,
             name: name.to_string(),
             vars: BTreeMap::new(),
+            secrets: BTreeMap::new(),
             envs: BTreeMap::new(),
             inputs: None,
             scans,
@@ -721,7 +735,7 @@ mod tests {
     }
 
     #[test]
-    fn test_eval_templ() {
+    fn test_eval_templ_var() {
         let mut scan_jobs = BTreeMap::new();
         scan_jobs.insert("scan1".to_string(), vec![]);
         let mut cfg = test_config(Uuid::now_v7(), "scan1", scan_jobs);
@@ -736,6 +750,29 @@ mod tests {
         assert_eq!(expr, got);
 
         let expr = "input has '${{ vars.EXAMPLE_KEY }}' value";
+        let got = engine
+            .eval_templ(expr)
+            .unwrap_or_else(|_| panic!("failed to evaluate template: {expr}"));
+        let want = "input has 'EXAMPLE_VALUE' value";
+        assert_eq!(want, got);
+    }
+
+    #[test]
+    fn test_eval_templ_secrret() {
+        let mut scan_jobs = BTreeMap::new();
+        scan_jobs.insert("scan1".to_string(), vec![]);
+        let mut cfg = test_config(Uuid::now_v7(), "scan1", scan_jobs);
+        cfg.secrets
+            .insert("EXAMPLE_KEY".to_string(), "EXAMPLE_VALUE".to_string());
+        let engine = JobEngine::new(&cfg);
+
+        let expr = "test str";
+        let got = engine
+            .eval_templ(expr)
+            .unwrap_or_else(|_| panic!("failed to evaluate template: {expr}"));
+        assert_eq!(expr, got);
+
+        let expr = "input has '${{ secrets.EXAMPLE_KEY }}' value";
         let got = engine
             .eval_templ(expr)
             .unwrap_or_else(|_| panic!("failed to evaluate template: {expr}"));
