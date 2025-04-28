@@ -147,6 +147,11 @@ mod tests {
                 m.insert("key".to_string(), "value".to_string());
                 m
             },
+            secrets: {
+                let mut m = BTreeMap::new();
+                m.insert("key".to_string(), "value".to_string());
+                m
+            },
             envs: BTreeMap::new(),
         };
         let ctx = super::ExecutionContext::new(
@@ -212,6 +217,11 @@ mod tests {
                 m.insert("key".to_string(), "value".to_string());
                 m
             },
+            secrets: {
+                let mut m = BTreeMap::new();
+                m.insert("key".to_string(), "value".to_string());
+                m
+            },
             envs: BTreeMap::new(),
         };
 
@@ -247,6 +257,7 @@ mod tests {
                 workflow: WorkflowMeta { id: workflow_id },
                 revision: WorkflowRevisionMeta { id: revision_id },
                 vars: BTreeMap::new(),
+                secrets: BTreeMap::new(),
                 envs: {
                     let mut m = BTreeMap::new();
                     m.insert("WORKFLOW_ENV".to_string(), "WORKFLOW_ENV".to_string());
