@@ -8,6 +8,7 @@ use std::fs::{self, File};
 use std::io::{BufRead, BufReader};
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, SyncSender, TryRecvError};
 use std::thread;
 use std::thread::JoinHandle;
@@ -249,11 +250,15 @@ where
 
         let stdout_tx = log_tx.clone();
         let index = self.index;
-        let stdout_handle = thread::spawn(move || read_and_send_line(index, stdout_tx, stdout));
+        let stdout_ctx = self.context.cfg();
+        let stdout_handle =
+            thread::spawn(move || read_and_send_line(index, stdout_ctx, stdout_tx, stdout));
 
         let stderr_tx = log_tx.clone();
+        let stderr_ctx = self.context.cfg();
         let index = self.index;
-        let stderr_handle = thread::spawn(move || read_and_send_line(index, stderr_tx, stderr));
+        let stderr_handle =
+            thread::spawn(move || read_and_send_line(index, stderr_ctx, stderr_tx, stderr));
 
         let log_ctx = ctx.clone();
         let worker_client = self.worker_client.clone();
@@ -722,12 +727,22 @@ where
     }
 }
 
-fn read_and_send_line<I>(index: u32, tx: SyncSender<LogLine>, it: I) -> Result<()>
+fn read_and_send_line<I>(
+    index: u32,
+    cfg: Arc<jobengine::Config>,
+    tx: SyncSender<LogLine>,
+    it: I,
+) -> Result<()>
 where
     I: Iterator<Item = Result<String, std::io::Error>>,
 {
     for line in it {
-        let line = line.into_diagnostic().wrap_err("Failed to read line")?;
+        let mut line = line.into_diagnostic().wrap_err("Failed to read line")?;
+
+        for val in cfg.secrets.values() {
+            line = line.replace(val, "***");
+        }
+
         if let Err(e) = tx.send(LogLine::stdout(index, &line)) {
             tracing::error!("Failed to send stdout to channel, stopping the stream: {e:?}");
             bail!("stdout send failed");
