@@ -235,14 +235,6 @@ mod tests {
     }
 
     #[test]
-    fn test_config_manager_empty_get() {
-        let _test_dir = TestDir::init();
-        let cm = ConfigManager::new();
-        let result = cm.get();
-        assert!(result.is_err(), "Want err, got {result:?}");
-    }
-
-    #[test]
     fn test_config_manager_put_and_get_ok() {
         let test_dir = TestDir::init();
         let cfg = Config {

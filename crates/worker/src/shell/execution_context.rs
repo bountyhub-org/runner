@@ -9,7 +9,7 @@ pub struct ExecutionContext {
     workdir: PathBuf,
     job_dir: PathBuf,
     envs: Arc<Vec<(String, String)>>,
-    cfg: jobengine::Config,
+    cfg: Arc<jobengine::Config>,
     engine: JobEngine,
     ok: bool,
 }
@@ -50,7 +50,7 @@ impl ExecutionContext {
             job_dir,
             envs: Arc::new(envs),
             engine,
-            cfg,
+            cfg: Arc::new(cfg),
             ok: true,
         }
     }
@@ -111,6 +111,11 @@ impl ExecutionContext {
     pub fn set_ok(&mut self, ok: bool) {
         self.ok = self.ok && ok;
         self.engine.set_ok(self.ok);
+    }
+
+    #[inline]
+    pub fn cfg(&self) -> Arc<jobengine::Config> {
+        Arc::clone(&self.cfg)
     }
 }
 
