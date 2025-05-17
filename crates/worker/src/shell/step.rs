@@ -342,7 +342,7 @@ where
             tracing::error!("Pushing logs returned an error, trying to move on: {e:?}");
         };
 
-        tracing::info!("Calling final wait");
+        tracing::debug!("Calling final wait");
         let ok = match child.wait() {
             Ok(out) => {
                 let code = out.code().unwrap_or(1);
