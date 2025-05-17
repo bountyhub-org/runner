@@ -52,7 +52,7 @@ impl InnerClientSet {
                 long_poll_client: ureq::Agent::new_with_config(
                     ureq::Agent::config_builder()
                         .timeout_send_request(Some(Duration::from_secs(2 * 60)))
-                        .timeout_recv_response(Some(Duration::from_secs(10)))
+                        .timeout_recv_response(Some(Duration::from_secs(2 * 60)))
                         .timeout_connect(Some(Duration::from_secs(10)))
                         .user_agent(&cfg.user_agent)
                         .tls_config(tls.clone())
