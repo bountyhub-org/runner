@@ -1,3 +1,4 @@
+use client::error::ClientError;
 use client::runner::{CompleteRequest, JobAcquiredResponse, PollRequest, RunnerClient};
 use config::ConfigManager;
 use ctx::{Background, Ctx};
@@ -108,60 +109,67 @@ where
             )
         });
 
-        let (worker_tx, worker_rx) = mpsc::sync_channel(capacity as usize);
-        let worker_joiner_capacity = capacity;
-        let worker_joiner_ctx = ctx.clone();
-        let worker_joiner_handle = thread::spawn(move || {
-            join_workers(
-                worker_joiner_ctx,
-                worker_rx,
-                worker_joiner_tx,
-                worker_joiner_capacity,
-            )
-        });
+        let worker_joiner_handle = {
+            let (worker_tx, worker_rx) = mpsc::sync_channel(capacity as usize);
+            let worker_joiner_capacity = capacity;
+            let worker_joiner_ctx = ctx.clone();
+            let worker_joiner_handle = thread::spawn(move || {
+                join_workers(
+                    worker_joiner_ctx,
+                    worker_rx,
+                    worker_joiner_tx,
+                    worker_joiner_capacity,
+                )
+            });
 
-        loop {
-            match event_rx.try_recv() {
-                Ok(RunnerEvent::AcquiredJobs(jobs)) => {
-                    for job in jobs {
-                        let complete_id = job.id;
-                        let job_id = job.id;
+            loop {
+                match event_rx.try_recv() {
+                    Ok(RunnerEvent::AcquiredJobs(jobs)) => {
+                        for job in jobs {
+                            let complete_id = job.id;
+                            let job_id = job.id;
 
-                        let worker = self.worker_builder.build(job).unwrap();
-                        let worker_ctx = ctx.clone();
-                        let client = client.clone();
-                        let worker_handle = thread::spawn(move || {
-                            if let Err(e) = worker.run(worker_ctx) {
-                                tracing::error!("Worker returned an error: {e:?}");
-                            };
-                            if let Err(e) = client.complete(
-                                ctx::background(),
-                                &CompleteRequest {
-                                    job_id: complete_id,
-                                },
-                            ) {
-                                tracing::error!("Failed to complete the job {complete_id}: {e:?}");
-                            }
-                        });
-                        worker_tx
-                            .send((job_id, Some(worker_handle)))
-                            .expect("to send the spawned worker");
+                            let worker = self.worker_builder.build(job).unwrap();
+                            let worker_ctx = ctx.clone();
+                            let client = client.clone();
+                            let worker_handle = thread::spawn(move || {
+                                if let Err(e) = worker.run(worker_ctx) {
+                                    tracing::error!("Worker returned an error: {e:?}");
+                                };
+                                if let Err(e) = client.complete(
+                                    ctx::background(),
+                                    &CompleteRequest {
+                                        job_id: complete_id,
+                                    },
+                                ) {
+                                    tracing::error!(
+                                        "Failed to complete the job {complete_id}: {e:?}"
+                                    );
+                                }
+                            });
+                            worker_tx
+                                .send((job_id, Some(worker_handle)))
+                                .expect("to send the spawned worker");
+                        }
                     }
-                }
-                Err(TryRecvError::Empty) => {
-                    if ctx.is_done() {
+                    Err(TryRecvError::Empty) => {
+                        if ctx.is_done() {
+                            break;
+                        }
+                        thread::sleep(Duration::from_millis(500));
+                        continue;
+                    }
+                    Err(_) => {
+                        tracing::error!("Channel closed, exiting...");
                         break;
                     }
-                    thread::sleep(Duration::from_millis(500));
-                    continue;
-                }
-                Err(_) => {
-                    tracing::error!("Channel closed, exiting...");
-                    break;
                 }
             }
-        }
 
+            worker_joiner_handle
+        };
+
+        tracing::info!("Shutting down, waiting for workers to finish...");
         if let Err(e) = worker_joiner_handle.join() {
             tracing::error!("Error returned while joining the worker joiner handle: {e:?}");
         }
@@ -190,7 +198,23 @@ where
             capacity += joined;
         }
 
-        let jobs = client.request(ctx.to_background(), &PollRequest { capacity })?;
+        let jobs = match client.request(ctx.to_background(), &PollRequest { capacity }) {
+            Ok(jobs) => {
+                tracing::debug!("Received {} jobs", jobs.len());
+                jobs
+            }
+            Err(e) => {
+                if e.downcast_ref::<ClientError>()
+                    .is_some_and(|e| e.is_retryable())
+                {
+                    tracing::debug!("Retrying job request on error: {e:?}");
+                    thread::sleep(Duration::from_secs(1));
+                    continue;
+                }
+                tracing::error!("Failed to poll for jobs: {e:?}");
+                continue;
+            }
+        };
         if jobs.is_empty() {
             match joined_rx.recv() {
                 Ok(v) => {
