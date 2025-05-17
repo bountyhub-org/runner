@@ -88,7 +88,10 @@ impl BountyHubClient for HttpBountyHubClient {
                     .map_err(ClientError::from)
                 {
                     Ok(res) => State::Done(res),
-                    Err(e) if e.is_retryable() => State::Retry(retry),
+                    Err(e) if e.is_retryable() => {
+                        tracing::error!("Encountered retryable error: {e:?}");
+                        State::Retry(retry)
+                    }
                     Err(e) => State::Fail(e),
                 }
             })
@@ -117,7 +120,10 @@ impl BountyHubClient for HttpBountyHubClient {
                     .map_err(ClientError::from)
                 {
                     Ok(res) => State::Done(res),
-                    Err(e) if e.is_retryable() => State::Retry(retry),
+                    Err(e) if e.is_retryable() => {
+                        tracing::error!("Encountered retryable error: {e:?}");
+                        State::Retry(retry)
+                    }
                     Err(e) => State::Fail(e),
                 }
             })
