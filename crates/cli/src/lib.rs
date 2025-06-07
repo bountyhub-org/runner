@@ -2,7 +2,6 @@ use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::{Shell, generate};
 use client::bountyhub::{BountyHubClient, RegistrationRequest, ReleaseResponse};
 use client::client_set::ClientSet;
-use client::runner::JobAcquiredResponse;
 use client::worker::HttpWorkerClient;
 use ctx::{Background, Ctx};
 use miette::{IntoDiagnostic, Result, WrapErr, bail};
@@ -13,6 +12,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use sudoservice::service::Service;
 use sudoservice::systemd::{Config as SystemdConfig, Systemd};
+use uuid::Uuid;
 use worker::shell::ShellWorker;
 
 pub(crate) mod prompt;
@@ -314,12 +314,12 @@ struct WorkerBuilder {
 impl runner::WorkerBuilder for WorkerBuilder {
     type Worker = ShellWorker<HttpWorkerClient>;
 
-    fn build(&self, job: JobAcquiredResponse) -> Result<Self::Worker> {
+    fn build(&self, id: Uuid, token: String) -> Result<Self::Worker> {
         Ok(ShellWorker {
             root_workdir: self.config.get()?.workdir.clone(),
             envs: Arc::clone(&self.envs),
-            client: self.client_set.worker_client(&job.token),
-            job,
+            client: self.client_set.worker_client(&token),
+            id,
         })
     }
 }

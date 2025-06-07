@@ -15,12 +15,11 @@ pub struct PollRequest {
     pub capacity: u32,
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
-pub struct JobAcquiredResponse {
-    pub id: Uuid,
-    #[serde(skip_serializing)]
-    pub token: String,
+pub enum JobMessage {
+    JobAssigned { id: Uuid, token: String },
+    JobCancelled { id: Uuid },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -32,7 +31,7 @@ pub struct CompleteRequest {
 pub trait RunnerClient: Send + Sync + Clone {
     fn hello(&self, ctx: Ctx<Background>) -> Result<()>;
     fn goodbye(&self, ctx: Ctx<Background>) -> Result<()>;
-    fn request(&self, ctx: Ctx<Background>, req: &PollRequest) -> Result<Vec<JobAcquiredResponse>>;
+    fn get_messages(&self, ctx: Ctx<Background>, req: &PollRequest) -> Result<Vec<JobMessage>>;
     fn complete(&self, ctx: Ctx<Background>, req: &CompleteRequest) -> Result<()>;
 }
 
@@ -47,7 +46,7 @@ mock! {
     impl RunnerClient for RunnerClient {
         fn hello(&self, ctx: Ctx<Background>) -> Result<()>;
         fn goodbye(&self, ctx: Ctx<Background>) -> Result<()>;
-        fn request(&self, ctx: Ctx<Background>, req: &PollRequest) -> Result<Vec<JobAcquiredResponse>>;
+        fn get_messages(&self, ctx: Ctx<Background>, req: &PollRequest) -> Result<Vec<JobMessage>>;
         fn complete(&self, ctx: Ctx<Background>, req: &CompleteRequest) -> Result<()>;
     }
 }
@@ -136,11 +135,11 @@ impl RunnerClient for HttpRunnerClient {
     }
 
     #[tracing::instrument(skip(self, ctx))]
-    fn request(&self, ctx: Ctx<Background>, req: &PollRequest) -> Result<Vec<JobAcquiredResponse>> {
+    fn get_messages(&self, ctx: Ctx<Background>, req: &PollRequest) -> Result<Vec<JobMessage>> {
         let (endpoint, token) = {
             let cfg = self.config_manager.get()?;
             (
-                format!("{}/api/v0/jobs/request", cfg.invoker_url),
+                format!("{}/api/v0/jobs/messages", cfg.invoker_url),
                 format!("Bearer {}", cfg.token),
             )
         };
@@ -172,7 +171,7 @@ impl RunnerClient for HttpRunnerClient {
 
         Ok(result
             .body_mut()
-            .read_json::<Vec<JobAcquiredResponse>>()
+            .read_json::<Vec<JobMessage>>()
             .map_err(ClientError::from)?)
     }
 

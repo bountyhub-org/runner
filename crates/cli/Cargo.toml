@@ -25,3 +25,4 @@ client = { path = "../client" }
 ctx = { path = "../ctx" }
 runner = { path = "../runner" }
 worker = { path = "../worker" }
+uuid = { version = "^1" }
