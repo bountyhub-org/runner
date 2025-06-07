@@ -315,6 +315,7 @@ dependencies = [
  "sudoservice",
  "tracing",
  "tracing-subscriber",
+ "uuid",
  "worker",
 ]
 

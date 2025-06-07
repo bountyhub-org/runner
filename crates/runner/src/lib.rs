@@ -1,7 +1,7 @@
 use client::error::ClientError;
-use client::runner::{CompleteRequest, JobAcquiredResponse, PollRequest, RunnerClient};
+use client::runner::{CompleteRequest, JobMessage, PollRequest, RunnerClient};
 use config::ConfigManager;
-use ctx::{Background, Ctx};
+use ctx::{Background, Cancel, Ctx};
 use miette::{IntoDiagnostic, Result};
 #[cfg(test)]
 use mockall::automock;
@@ -59,11 +59,6 @@ where
     }
 }
 
-#[derive(Debug, Clone)]
-enum RunnerEvent {
-    AcquiredJobs(Vec<JobAcquiredResponse>),
-}
-
 #[cfg_attr(test, automock)]
 impl<WB, W> Runner<WB, W>
 where
@@ -95,18 +90,11 @@ where
         assert!(capacity > 0, "Config capacity set to 0 doesn't make sense");
 
         let (event_tx, event_rx) = mpsc::sync_channel(2);
-        let (worker_joiner_tx, worker_joiner_rx) = mpsc::sync_channel(1);
         let listener_ctx = ctx.clone();
         let listener_client = client.clone();
         let listener_capacity = capacity;
         thread::spawn(move || {
-            poll_loop(
-                listener_ctx,
-                listener_client,
-                event_tx,
-                worker_joiner_rx,
-                listener_capacity,
-            )
+            poll_loop(listener_ctx, listener_client, event_tx, listener_capacity)
         });
 
         let worker_joiner_handle = {
@@ -114,42 +102,47 @@ where
             let worker_joiner_capacity = capacity;
             let worker_joiner_ctx = ctx.clone();
             let worker_joiner_handle = thread::spawn(move || {
-                join_workers(
-                    worker_joiner_ctx,
-                    worker_rx,
-                    worker_joiner_tx,
-                    worker_joiner_capacity,
-                )
+                join_workers(worker_joiner_ctx, worker_rx, worker_joiner_capacity)
             });
 
             loop {
                 match event_rx.try_recv() {
-                    Ok(RunnerEvent::AcquiredJobs(jobs)) => {
-                        for job in jobs {
-                            let complete_id = job.id;
-                            let job_id = job.id;
-
-                            let worker = self.worker_builder.build(job).unwrap();
-                            let worker_ctx = ctx.clone();
-                            let client = client.clone();
-                            let worker_handle = thread::spawn(move || {
-                                if let Err(e) = worker.run(worker_ctx) {
-                                    tracing::error!("Worker returned an error: {e:?}");
-                                };
-                                if let Err(e) = client.complete(
-                                    ctx::background(),
-                                    &CompleteRequest {
-                                        job_id: complete_id,
-                                    },
-                                ) {
-                                    tracing::error!(
-                                        "Failed to complete the job {complete_id}: {e:?}"
-                                    );
+                    Ok(messages) => {
+                        for message in messages {
+                            match message {
+                                JobMessage::JobAssigned { id, token } => {
+                                    let worker = self.worker_builder.build(id, token).unwrap();
+                                    let worker_handle_ctx = ctx.with_cancel();
+                                    let worker_ctx = worker_handle_ctx.to_background();
+                                    let client = client.clone();
+                                    let worker_handle = thread::spawn(move || {
+                                        if let Err(e) = worker.run(worker_ctx) {
+                                            tracing::error!("Worker returned an error: {e:?}");
+                                        };
+                                        if let Err(e) = client.complete(
+                                            ctx::background(),
+                                            &CompleteRequest { job_id: id },
+                                        ) {
+                                            tracing::error!(
+                                                "Failed to complete the job {id}: {e:?}"
+                                            );
+                                        }
+                                    });
+                                    worker_tx
+                                        .send(JoinWorkersEvent::JobStarted(JobStarted {
+                                            id,
+                                            ctx: worker_handle_ctx,
+                                            handle: Some(worker_handle),
+                                        }))
+                                        .expect("to send the spawned worker");
                                 }
-                            });
-                            worker_tx
-                                .send((job_id, Some(worker_handle)))
-                                .expect("to send the spawned worker");
+                                JobMessage::JobCancelled { id } => {
+                                    tracing::info!("Job {id} was cancelled");
+                                    worker_tx
+                                        .send(JoinWorkersEvent::JobCancelled(id))
+                                        .expect("to send the cancelled job");
+                                }
+                            }
                         }
                     }
                     Err(TryRecvError::Empty) => {
@@ -181,9 +174,8 @@ where
 fn poll_loop<RC>(
     ctx: Ctx<Background>,
     client: RC,
-    poll_tx: SyncSender<RunnerEvent>,
-    joined_rx: Receiver<u32>,
-    mut capacity: u32,
+    poll_tx: SyncSender<Vec<JobMessage>>,
+    capacity: u32,
 ) -> Result<()>
 where
     RC: RunnerClient,
@@ -194,11 +186,9 @@ where
             return Ok(());
         }
 
-        if let Ok(joined) = joined_rx.try_recv() {
-            capacity += joined;
-        }
-
-        let jobs = match client.request(ctx.to_background(), &PollRequest { capacity }) {
+        let req = PollRequest { capacity };
+        tracing::info!("Polling for jobs with capacity: {}", req.capacity);
+        let messages = match client.get_messages(ctx.to_background(), &req) {
             Ok(jobs) => {
                 tracing::debug!("Received {} jobs", jobs.len());
                 jobs
@@ -215,35 +205,25 @@ where
                 continue;
             }
         };
-        if jobs.is_empty() {
-            match joined_rx.recv() {
-                Ok(v) => {
-                    capacity += v;
-                    continue;
-                }
-                Err(e) => {
-                    tracing::debug!("Closed channel: {e:?}");
-                    return Ok(());
-                }
-            }
-        }
 
-        capacity -= jobs.len() as u32;
-
-        poll_tx
-            .send(RunnerEvent::AcquiredJobs(jobs))
-            .expect("to send acquired jobs");
+        poll_tx.send(messages).expect("to send acquired jobs");
     }
 }
 
+enum JoinWorkersEvent {
+    JobStarted(JobStarted),
+    JobCancelled(Uuid),
+}
+
+struct JobStarted {
+    id: Uuid,
+    ctx: Ctx<Cancel>,
+    handle: Option<JoinHandle<()>>,
+}
+
 #[tracing::instrument(skip(ctx))]
-fn join_workers(
-    ctx: Ctx<Background>,
-    worker_rx: Receiver<(Uuid, Option<JoinHandle<()>>)>,
-    worker_joiner_tx: SyncSender<u32>,
-    capacity: u32,
-) {
-    let mut handles = Vec::with_capacity(capacity as usize);
+fn join_workers(ctx: Ctx<Background>, worker_rx: Receiver<JoinWorkersEvent>, capacity: u32) {
+    let mut handles: Vec<JobStarted> = Vec::with_capacity(capacity as usize);
 
     loop {
         if ctx.is_done() {
@@ -254,9 +234,17 @@ fn join_workers(
         loop {
             thread::sleep(Duration::from_millis(500));
             match worker_rx.try_recv() {
-                Ok(id_handle) => {
-                    tracing::debug!("Received handle {}", id_handle.0);
-                    handles.push(id_handle)
+                Ok(JoinWorkersEvent::JobCancelled(id)) => {
+                    tracing::debug!("Job cancelled: {id:?}");
+                    let job_started = handles.iter_mut().find(|job_started| job_started.id == id);
+                    if let Some(JobStarted { ctx, .. }) = job_started {
+                        tracing::debug!("Cancelling job with id: {id:?}");
+                        ctx.cancel();
+                    }
+                }
+                Ok(JoinWorkersEvent::JobStarted(job_started)) => {
+                    tracing::debug!("Received handle {}", job_started.id);
+                    handles.push(job_started);
                 }
                 Err(TryRecvError::Empty) => {
                     tracing::debug!("Empty");
@@ -274,14 +262,14 @@ fn join_workers(
         }
 
         let mut done_count = 0;
-        handles.retain_mut(|(id, handle): &mut (Uuid, Option<JoinHandle<()>>)| {
-            if !handle.as_ref().unwrap().is_finished() {
+        handles.retain_mut(|job_started: &mut JobStarted| {
+            if !job_started.handle.as_ref().unwrap().is_finished() {
                 return true;
             }
 
-            tracing::debug!("Joining job id: {id:?}");
+            tracing::debug!("Joining job id: {:?}", job_started.id);
             done_count += 1;
-            if let Err(e) = handle.take().unwrap().join() {
+            if let Err(e) = job_started.handle.take().unwrap().join() {
                 tracing::error!("Failed to join the worker thread: {e:?}");
             };
 
@@ -289,17 +277,14 @@ fn join_workers(
         });
 
         if done_count > 0 {
-            if let Err(e) = worker_joiner_tx.send(done_count) {
-                tracing::error!("Failed to send done count: {e:?}");
-                break;
-            }
+            tracing::debug!("Done count: {done_count}");
         }
     }
 }
 
 pub trait WorkerBuilder {
     type Worker: worker::Worker;
-    fn build(&self, job: JobAcquiredResponse) -> Result<Self::Worker>;
+    fn build(&self, id: Uuid, token: String) -> Result<Self::Worker>;
 }
 
 #[cfg(test)]
@@ -315,9 +300,8 @@ mod tests {
 
         let rc = MockRunnerClient::new();
         let (poll_tx, _poll_rx) = mpsc::sync_channel(1);
-        let (_joined_tx, joined_rx) = mpsc::sync_channel(1);
 
-        poll_loop(ctx.to_background(), rc, poll_tx, joined_rx, 1)
+        poll_loop(ctx.to_background(), rc, poll_tx, 1)
             .expect("expected poll loop to exit with Ok(())");
     }
 
@@ -330,30 +314,18 @@ mod tests {
             let mut rc = MockRunnerClient::new();
 
             let (poll_tx, poll_rx) = mpsc::sync_channel(1);
-            let (joined_tx, joined_rx) = mpsc::sync_channel(1);
 
-            rc.expect_request()
+            rc.expect_get_messages()
                 .returning(|_, req| {
                     assert_eq!(req.capacity, 2);
                     write_job_acquired_from_cap(2)
                 })
                 .once();
 
-            let joined_notifier_tx = joined_tx.clone();
-            rc.expect_request()
-                .returning(move |_, req| {
-                    assert_eq!(req.capacity, 0);
-                    let result = write_job_acquired_from_cap(0);
-                    joined_notifier_tx
-                        .send(1u32)
-                        .expect("joined notifier send error");
-                    result
-                })
-                .once();
-
-            rc.expect_request()
+            // Always propagate capacity
+            rc.expect_get_messages()
                 .returning(|_, req| {
-                    assert_eq!(req.capacity, 1);
+                    assert_eq!(req.capacity, 2);
                     write_job_acquired_from_cap(1)
                 })
                 .once();
@@ -366,15 +338,21 @@ mod tests {
             });
 
             thread::spawn(move || {
-                poll_loop(poll_ctx, rc, poll_tx, joined_rx, 2)
+                poll_loop(poll_ctx, rc, poll_tx, 2)
                     .expect("expected poll loop to exit with Ok(())");
             });
 
             let mut acquired = 0;
             while let Ok(v) = poll_rx.recv() {
-                match v {
-                    RunnerEvent::AcquiredJobs(v) => {
-                        acquired += v.len();
+                for v in v {
+                    tracing::debug!("Received job message: {:?}", v);
+                    match v {
+                        JobMessage::JobAssigned { .. } => {
+                            acquired += 1;
+                        }
+                        JobMessage::JobCancelled { .. } => {
+                            unreachable!("JobCancelled should not be received in this test");
+                        }
                     }
                 }
             }
@@ -390,47 +368,9 @@ mod tests {
         ctx.cancel();
 
         let (_worker_tx, worker_rx) = mpsc::sync_channel(1);
-        let (worker_joiner_tx, _worker_joiner_rx) = mpsc::sync_channel(1);
 
         panic_after(Duration::from_secs(1), move || {
-            join_workers(ctx.to_background(), worker_rx, worker_joiner_tx, 1)
-        });
-    }
-
-    #[test]
-    fn test_join_workers_proper_count() {
-        panic_after(Duration::from_secs(10), || {
-            let ctx = ctx::background();
-            let ctx = ctx.with_cancel();
-            let (worker_tx, worker_rx) = mpsc::sync_channel(2);
-            let (worker_joiner_tx, worker_joiner_rx) = mpsc::sync_channel(2);
-
-            let join_ctx = ctx.to_background();
-            let join_handle = thread::spawn(move || {
-                join_workers(join_ctx, worker_rx, worker_joiner_tx, 2);
-            });
-
-            let h1 = thread::spawn(|| thread::sleep(Duration::from_secs(1)));
-            let h2 = thread::spawn(|| thread::sleep(Duration::from_millis(500)));
-
-            worker_tx
-                .send((Uuid::new_v4(), Some(h1)))
-                .expect("to send first handle");
-            worker_tx
-                .send((Uuid::new_v4(), Some(h2)))
-                .expect("to send second handle");
-
-            thread::spawn(move || {
-                thread::sleep(Duration::from_secs(5));
-                ctx.cancel();
-            });
-
-            let mut done = 0;
-            while let Ok(count) = worker_joiner_rx.recv() {
-                done += count;
-            }
-            join_handle.join().expect("To join the join handle");
-            assert_eq!(done, 2);
+            join_workers(ctx.to_background(), worker_rx, 1)
         });
     }
 
@@ -453,10 +393,10 @@ mod tests {
         }
     }
 
-    fn write_job_acquired_from_cap(cap: usize) -> Result<Vec<JobAcquiredResponse>> {
+    fn write_job_acquired_from_cap(cap: usize) -> Result<Vec<JobMessage>> {
         let mut result = Vec::with_capacity(cap);
         for _ in 0..cap {
-            result.push(JobAcquiredResponse {
+            result.push(JobMessage::JobAssigned {
                 id: Uuid::now_v7(),
                 token: Uuid::new_v4().to_string(),
             });

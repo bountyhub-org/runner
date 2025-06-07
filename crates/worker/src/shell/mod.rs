@@ -1,12 +1,12 @@
 use self::execution_context::ExecutionContext;
 use super::Worker;
-use client::runner::JobAcquiredResponse;
 use client::worker::{Step, WorkerClient};
 use ctx::{Background, Ctx};
 use miette::{Result, WrapErr};
 use std::path::PathBuf;
 use std::sync::Arc;
 use step::{CommandStep, SetupStep, Step as ShellStep, TeardownStep, UploadStep};
+use uuid::Uuid;
 
 pub mod execution_context;
 pub mod step;
@@ -19,7 +19,7 @@ where
     pub root_workdir: PathBuf,
     pub envs: Arc<Vec<(String, String)>>,
     pub client: C,
-    pub job: JobAcquiredResponse,
+    pub id: Uuid,
 }
 
 impl<C> Worker for ShellWorker<C>
@@ -28,7 +28,7 @@ where
 {
     #[tracing::instrument(skip(self, ctx))]
     fn run(self, ctx: Ctx<Background>) -> Result<()> {
-        tracing::info!("Resolving job {}", self.job.id);
+        tracing::info!("Resolving job {}", self.id);
         let job = self
             .client
             .resolve(ctx.clone())
