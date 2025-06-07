@@ -187,7 +187,6 @@ where
         }
 
         let req = PollRequest { capacity };
-        tracing::info!("Polling for jobs with capacity: {}", req.capacity);
         let messages = match client.get_messages(ctx.to_background(), &req) {
             Ok(jobs) => {
                 tracing::debug!("Received {} jobs", jobs.len());

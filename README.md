@@ -44,7 +44,7 @@ The image for the runner is created as a base image that you can use to build yo
 For example, you can create a Dockerfile like this:
 
 ```Dockerfile
-FROM bountyhuborg/runner:0.1.0 AS runner
+FROM bountyhuborg/runner:0.7.0 AS runner
 
 FROM ubuntu:24.04
 
