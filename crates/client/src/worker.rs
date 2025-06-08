@@ -32,7 +32,7 @@ pub enum Step {
         cond: String,
         run: String,
         shell: String,
-        allow_failed: bool,
+        allow_failure: bool,
     },
 }
 

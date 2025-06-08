@@ -183,7 +183,7 @@ pub struct CommandStep<'a, C> {
     pub cond: &'a str,
     pub run: &'a str,
     pub shell: &'a str,
-    pub allow_failed: bool,
+    pub allow_failure: bool,
 }
 
 impl<C> Step for CommandStep<'_, C>
@@ -239,7 +239,7 @@ where
                     .post_step_timeline(ctx.clone(), &timeline_request)
                     .wrap_err("Failed to post step timeline")?;
 
-                return Ok(self.allow_failed);
+                return Ok(self.allow_failure);
             }
         };
 
@@ -321,7 +321,7 @@ where
                         .post_step_timeline(ctx.clone(), &timeline_request)
                         .wrap_err("Failed to post step timeline")?;
 
-                    return Ok(self.allow_failed);
+                    return Ok(self.allow_failure);
                 }
             }
         }
@@ -361,7 +361,7 @@ where
                     .post_step_timeline(ctx.clone(), &timeline_request)
                     .wrap_err("Failed to post step timeline")?;
 
-                ok || self.allow_failed
+                ok || self.allow_failure
             }
             Err(e) => {
                 tracing::error!("Failed to wait child process: {e:?}");
@@ -375,7 +375,7 @@ where
                     .post_step_timeline(ctx.clone(), &timeline_request)
                     .wrap_err("Failed to post step timeline")?;
 
-                self.allow_failed
+                self.allow_failure
             }
         };
 
@@ -570,7 +570,7 @@ where
     }
 
     fn soft_fail_state(&self) -> TimelineRequestStepState {
-        if self.allow_failed {
+        if self.allow_failure {
             TimelineRequestStepState::Failed {
                 outcome: TimelineRequestStepOutcome::Succeeded,
             }
@@ -1123,7 +1123,7 @@ mod tests {
             cond: "ok",
             run: "echo 'test'",
             shell: "",
-            allow_failed: true, // outcome should still be failed since this is a precondition
+            allow_failure: true, // outcome should still be failed since this is a precondition
         };
 
         let v = command_step.split_shell(ctx::background());
@@ -1146,7 +1146,7 @@ mod tests {
             cond: "ok",
             run: "echo 'test'",
             shell: "bash -x",
-            allow_failed: true, // outcome should still be failed since this is a precondition
+            allow_failure: true, // outcome should still be failed since this is a precondition
         };
 
         let v = command_step
@@ -1176,7 +1176,7 @@ mod tests {
             cond: "ok",
             run: "echo 'test'",
             shell: "bash -x",
-            allow_failed: true, // outcome should still be failed since this is a precondition
+            allow_failure: true, // outcome should still be failed since this is a precondition
         };
 
         let result = command_step
@@ -1240,7 +1240,7 @@ mod tests {
             cond: "ok",
             run: "echo 'test'",
             shell: "bash -x",
-            allow_failed: true, // outcome should still be failed since this is a precondition
+            allow_failure: true, // outcome should still be failed since this is a precondition
         };
 
         let result = command_step.write_scipt(ctx::background());
@@ -1263,7 +1263,7 @@ mod tests {
             cond: "ok",
             run: "echo 'test'",
             shell: "bash -x",
-            allow_failed: true, // outcome should still be failed since this is a precondition
+            allow_failure: true, // outcome should still be failed since this is a precondition
         };
 
         assert!(matches!(
@@ -1280,7 +1280,7 @@ mod tests {
             cond: "ok",
             run: "echo 'test'",
             shell: "bash -x",
-            allow_failed: false, // outcome should still be failed since this is a precondition
+            allow_failure: false, // outcome should still be failed since this is a precondition
         };
 
         assert!(matches!(
@@ -1321,7 +1321,7 @@ mod tests {
             cond: "ok",
             run: "echo 'test'",
             shell: "bash -x",
-            allow_failed: false, // outcome should still be failed since this is a precondition
+            allow_failure: false, // outcome should still be failed since this is a precondition
         };
 
         let result = command_step
@@ -1359,7 +1359,7 @@ mod tests {
             cond: "ok",
             run: "echo 'test'",
             shell: "bash -x",
-            allow_failed: false, // outcome should still be failed since this is a precondition
+            allow_failure: false, // outcome should still be failed since this is a precondition
         };
 
         let result = command_step
@@ -1418,7 +1418,7 @@ mod tests {
             cond: "notexist",
             run: "echo 'test'",
             shell: "bash -x",
-            allow_failed: false, // outcome should still be failed since this is a precondition
+            allow_failure: false, // outcome should still be failed since this is a precondition
         };
 
         let result = command_step.should_run(ctx::background());
