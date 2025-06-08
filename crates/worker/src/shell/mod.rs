@@ -77,7 +77,7 @@ where
                     cond,
                     run,
                     shell,
-                    allow_failed,
+                    allow_failure,
                 } => {
                     let step = CommandStep {
                         index,
@@ -86,7 +86,7 @@ where
                         cond,
                         run,
                         shell,
-                        allow_failed: *allow_failed,
+                        allow_failure: *allow_failure,
                     };
 
                     step.run(ctx)
