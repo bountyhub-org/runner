@@ -220,7 +220,7 @@ where
         let mut cmd = Command::new(binary);
         cmd.args(args);
         cmd.current_dir(self.context.job_dir());
-        cmd.envs(self.context.envs().iter().cloned());
+        cmd.envs(self.context.env().iter().cloned());
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());
 
@@ -934,7 +934,7 @@ mod tests {
             revision: WorkflowRevisionMeta { id: Uuid::now_v7() },
             vars: BTreeMap::new(),
             secrets: BTreeMap::new(),
-            envs: BTreeMap::new(),
+            env: BTreeMap::new(),
             inputs: None,
         }
     }

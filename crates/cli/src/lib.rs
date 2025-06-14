@@ -162,7 +162,7 @@ impl Cli {
                     bail!("Systemd is not available on this system");
                 }
 
-                let worker_envs: Vec<(String, String)> = dotenv::vars().collect();
+                let worker_env: Vec<(String, String)> = dotenv::vars().collect();
 
                 let cfg = SystemdConfig {
                     name: svc_name.clone(),
@@ -178,7 +178,7 @@ impl Cli {
                             .into_diagnostic()
                             .wrap_err("Failed to get current working directory")?,
                     ),
-                    environment: Some(worker_envs),
+                    environment: Some(worker_env),
                     ch_root: None,
                     restart: true,
                     restart_sec: None,
@@ -244,12 +244,12 @@ impl Cli {
             Commands::Run {} => {
                 config_manager.get().wrap_err("Failed to get config")?;
 
-                let worker_envs: Arc<Vec<(String, String)>> = Arc::new(dotenv::vars().collect());
+                let worker_env: Arc<Vec<(String, String)>> = Arc::new(dotenv::vars().collect());
 
                 let worker_builder = WorkerBuilder {
                     config: config_manager.clone(),
                     client_set: client_set.clone(),
-                    envs: Arc::clone(&worker_envs),
+                    env: Arc::clone(&worker_env),
                 };
 
                 let runner_client = client_set.runner_client();
@@ -308,7 +308,7 @@ impl Cli {
 struct WorkerBuilder {
     config: ConfigManager,
     client_set: ClientSet,
-    envs: Arc<Vec<(String, String)>>,
+    env: Arc<Vec<(String, String)>>,
 }
 
 impl runner::WorkerBuilder for WorkerBuilder {
@@ -317,7 +317,7 @@ impl runner::WorkerBuilder for WorkerBuilder {
     fn build(&self, id: Uuid, token: String) -> Result<Self::Worker> {
         Ok(ShellWorker {
             root_workdir: self.config.get()?.workdir.clone(),
-            envs: Arc::clone(&self.envs),
+            env: Arc::clone(&self.env),
             client: self.client_set.worker_client(&token),
             id,
         })

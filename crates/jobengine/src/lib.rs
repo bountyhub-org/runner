@@ -21,7 +21,7 @@ pub struct Config {
     pub secrets: BTreeMap<String, String>,
     /// Workflow environment variables
     #[serde(default)]
-    pub envs: BTreeMap<String, String>,
+    pub env: BTreeMap<String, String>,
     /// Custom inputs
     pub inputs: Option<BTreeMap<String, InputValue>>,
     /// Scans associated with the workflow
@@ -347,7 +347,7 @@ mod tests {
             name: name.to_string(),
             vars: BTreeMap::new(),
             secrets: BTreeMap::new(),
-            envs: BTreeMap::new(),
+            env: BTreeMap::new(),
             inputs: None,
             scans,
             project: ProjectMeta { id: Uuid::now_v7() },

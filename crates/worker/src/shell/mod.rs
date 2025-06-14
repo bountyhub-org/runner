@@ -17,7 +17,7 @@ where
     C: WorkerClient,
 {
     pub root_workdir: PathBuf,
-    pub envs: Arc<Vec<(String, String)>>,
+    pub env: Arc<Vec<(String, String)>>,
     pub client: C,
     pub id: Uuid,
 }
@@ -37,7 +37,7 @@ where
 
         tracing::info!("Building execution context");
         let mut execution_context =
-            ExecutionContext::new(self.root_workdir.clone(), self.envs.clone(), job.cfg);
+            ExecutionContext::new(self.root_workdir.clone(), self.env.clone(), job.cfg);
 
         for (index, step) in job.steps.iter().enumerate() {
             let index = index as u32;

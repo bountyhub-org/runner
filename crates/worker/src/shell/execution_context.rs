@@ -8,7 +8,7 @@ use uuid::Uuid;
 pub struct ExecutionContext {
     workdir: PathBuf,
     job_dir: PathBuf,
-    envs: Arc<Vec<(String, String)>>,
+    env: Arc<Vec<(String, String)>>,
     cfg: Arc<jobengine::Config>,
     engine: JobEngine,
     ok: bool,
@@ -16,28 +16,28 @@ pub struct ExecutionContext {
 
 impl ExecutionContext {
     #[tracing::instrument]
-    pub fn new(workdir: PathBuf, envs: Arc<Vec<(String, String)>>, cfg: jobengine::Config) -> Self {
+    pub fn new(workdir: PathBuf, env: Arc<Vec<(String, String)>>, cfg: jobengine::Config) -> Self {
         let engine = JobEngine::new(&cfg);
 
-        let mut envs = envs.iter().cloned().collect::<Vec<(String, String)>>();
-        envs.push((
+        let mut env = env.iter().cloned().collect::<Vec<(String, String)>>();
+        env.push((
             "BOUNTYHUB_PROJECT_ID".to_string(),
             cfg.project.id.to_string(),
         ));
-        envs.push((
+        env.push((
             "BOUNTYHUB_WORKFLOW_ID".to_string(),
             cfg.workflow.id.to_string(),
         ));
-        envs.push((
+        env.push((
             "BOUNTYHUB_REVISION_ID".to_string(),
             cfg.revision.id.to_string(),
         ));
-        envs.push(("BOUNTYHUB_JOB_ID".to_string(), cfg.id.to_string()));
-        envs.push(("BOUNTYHUB_SCAN_NAME".to_string(), cfg.name.clone()));
+        env.push(("BOUNTYHUB_JOB_ID".to_string(), cfg.id.to_string()));
+        env.push(("BOUNTYHUB_SCAN_NAME".to_string(), cfg.name.clone()));
 
-        for (k, v) in &cfg.envs {
+        for (k, v) in &cfg.env {
             match engine.eval_templ(v) {
-                Ok(v) => envs.push((k.clone(), v)),
+                Ok(v) => env.push((k.clone(), v)),
                 Err(e) => {
                     tracing::warn!("Failed to parse environment variable {k}: {e:?}. Continuing")
                 }
@@ -48,7 +48,7 @@ impl ExecutionContext {
         Self {
             workdir,
             job_dir,
-            envs: Arc::new(envs),
+            env: Arc::new(env),
             engine,
             cfg: Arc::new(cfg),
             ok: true,
@@ -71,8 +71,8 @@ impl ExecutionContext {
     }
 
     #[inline]
-    pub fn envs(&self) -> Arc<Vec<(String, String)>> {
-        self.envs.clone()
+    pub fn env(&self) -> Arc<Vec<(String, String)>> {
+        self.env.clone()
     }
 
     #[tracing::instrument(skip(self))]
@@ -157,7 +157,7 @@ mod tests {
                 m.insert("key".to_string(), "value".to_string());
                 m
             },
-            envs: BTreeMap::new(),
+            env: BTreeMap::new(),
         };
         let ctx = super::ExecutionContext::new(
             env::temp_dir(),
@@ -227,7 +227,7 @@ mod tests {
                 m.insert("key".to_string(), "value".to_string());
                 m
             },
-            envs: BTreeMap::new(),
+            env: BTreeMap::new(),
         };
 
         let mut ctx = super::ExecutionContext::new(
@@ -263,7 +263,7 @@ mod tests {
                 revision: WorkflowRevisionMeta { id: revision_id },
                 vars: BTreeMap::new(),
                 secrets: BTreeMap::new(),
-                envs: {
+                env: {
                     let mut m = BTreeMap::new();
                     m.insert("WORKFLOW_ENV".to_string(), "WORKFLOW_ENV".to_string());
                     m
@@ -271,8 +271,8 @@ mod tests {
             },
         );
 
-        let envs = ctx.envs();
-        let got = envs.iter().cloned().collect::<BTreeMap<String, String>>();
+        let env = ctx.env();
+        let got = env.iter().cloned().collect::<BTreeMap<String, String>>();
         assert_eq!(
             got.get("BOUNTYHUB_JOB_ID")
                 .expect("BOUNTYHUB_JOB_ID")
