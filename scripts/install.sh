@@ -6,6 +6,40 @@ REPO="https://github.com/bountyhub-org/runner"
 REPO_API="https://api.github.com/repos/bountyhub-org/runner"
 BINARY_DST="${HOME}/.local/bin"
 
+usage() {
+    echo "Usage: $0 [options]"
+    echo "Options:"
+    echo "  -h, --help      Show this help message"
+    echo "  -d, --destination <path>  Specify the destination directory for the binary (default: ${BINARY_DST})"
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        -d|--destination)
+            if [[ -n "$2" && ! "$2" =~ ^- ]]; then
+                BINARY_DST="$2"
+                mkdir -p "${BINARY_DST}" || {
+                    echo "Error: Failed to create destination directory ${BINARY_DST}."
+                    exit 1
+                }
+                shift 2
+            else
+                echo "Error: --destination requires a path argument."
+                exit 1
+            fi
+            ;;
+        *)
+            echo "Unknown option: $1"
+            usage
+            exit 1
+            ;;
+    esac
+done
+
 fail() {
     echo "Error: $1"
     exit 1
@@ -14,8 +48,7 @@ fail() {
 prepare_directories() {
     echo "Preparing binary destination directory at ${BINARY_DST}..."
     if [[ ! -d "${BINARY_DST}" ]]; then
-        mkdir -p "${BINARY_DST}"
-        if [[ $? -ne 0 ]]; then
+        if ! mkdir -p "${BINARY_DST}"; then
             fail "Failed to create directory ${BINARY_DST}."
         fi
     fi
@@ -59,7 +92,7 @@ get_latest_tag() {
     if ! _latest_tag=$(curl -s "$REPO_API/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/'); then
         fail "Failed to get latest release information."
     fi
-    
+
     if [ -z "$_latest_tag" ]; then
         fail "Could not determine the latest release tag."
     fi
@@ -121,7 +154,7 @@ main() {
 
     local _arch
     _arch=$(get_arch)
-    
+
     echo "Downloading the latest ${_latest_tag} release for architecture ${_arch}..."
     download_target_to "${_temp_dir}" "${_latest_tag}" "${_arch}"
 
