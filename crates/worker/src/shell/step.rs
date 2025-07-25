@@ -1,6 +1,6 @@
 use super::execution_context::ExecutionContext;
 use cellang::Value;
-use client::worker::{LogLine, TimelineRequestStepState};
+use client::worker::{Artifact, LogLine, TimelineRequestStepState};
 use client::worker::{TimelineRequest, TimelineRequestStepOutcome, WorkerClient};
 use ctx::{Background, Ctx};
 use miette::{IntoDiagnostic, Result, WrapErr, bail};
@@ -583,17 +583,17 @@ where
 }
 
 #[derive(Debug)]
-pub struct UploadStep<'a, C>
+pub struct ArtifactStep<'a, C>
 where
     C: WorkerClient,
 {
     pub index: u32,
     pub context: &'a ExecutionContext,
-    pub uploads: &'a Vec<String>,
+    pub artifacts: &'a Vec<Artifact>,
     pub worker_client: C,
 }
 
-impl<C> Step for UploadStep<'_, C>
+impl<C> Step for ArtifactStep<'_, C>
 where
     C: WorkerClient,
 {
@@ -655,13 +655,13 @@ where
             }
             Err(e) => {
                 let msg = format!("Failed to upload job artifact: {e:?}");
-                return self.fail_with_message(ctx.clone(), &msg);
+                self.fail_with_message(ctx.clone(), &msg)
             }
         }
     }
 }
 
-impl<C> UploadStep<'_, C>
+impl<C> ArtifactStep<'_, C>
 where
     C: WorkerClient,
 {
@@ -681,22 +681,24 @@ where
             .into_diagnostic()
             .wrap_err("Failed to canonicalize the workdir")?;
 
-        for upload in self.uploads {
-            let path = normalize_abs_path(&workdir, Path::new(upload.as_str())).wrap_err(
-                format!("Failed to normalize path: workdir={workdir:?}, path={upload}"),
-            )?;
-
-            if path.is_dir() {
-                add_dir_to_zip(&mut zip, &path, &workdir, option)?;
-            } else {
-                add_file_to_zip(
-                    &mut zip,
-                    &path,
-                    path.strip_prefix(&workdir)
-                        .into_diagnostic()
-                        .wrap_err("Failed to strip workdir prefix when calculating destination")?,
-                    option,
+        for artifact in self.artifacts {
+            for path in &artifact.paths {
+                let path = normalize_abs_path(&workdir, Path::new(path.as_str())).wrap_err(
+                    format!("Failed to normalize path: workdir={workdir:?}, path={path}"),
                 )?;
+
+                if path.is_dir() {
+                    add_dir_to_zip(&mut zip, &path, &workdir, option)?;
+                } else {
+                    add_file_to_zip(
+                        &mut zip,
+                        &path,
+                        path.strip_prefix(&workdir).into_diagnostic().wrap_err(
+                            "Failed to strip workdir prefix when calculating destination",
+                        )?,
+                        option,
+                    )?;
+                }
             }
         }
 
@@ -891,7 +893,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use client::worker::{LogDestination, MockWorkerClient};
+    use client::worker::{Artifact, LogDestination, MockWorkerClient};
     use jobengine::{ProjectMeta, WorkflowMeta, WorkflowRevisionMeta};
     use std::{
         collections::{BTreeMap, BTreeSet},
@@ -1468,18 +1470,24 @@ mod tests {
 
         let config = new_jobengine_context("example");
         let context = ExecutionContext::new(test_dir.dir.clone(), Arc::new(vec![]), config);
-        let uploads = vec![
-            "file_0.txt".to_string(),
-            "folder/".to_string(),
-            "example/file_3.txt".to_string(),
-        ];
+        let artifacts = vec![Artifact {
+            name: "result".to_string(),
+            paths: vec![
+                "file_0.txt".to_string(),
+                "folder/".to_string(),
+                "example/file_3.txt".to_string(),
+            ],
+            cond: None,
+            untracked: false,
+            expires_in: None,
+        }];
         let job_dir = context.job_dir();
         fs::create_dir_all(job_dir).expect("create job dir");
 
         let (file_0, file_0_path) = ("0", "file_0.txt");
         fs::write(job_dir.join(file_0_path), file_0).expect("to write file_0");
 
-        let zip_entire_folder_path = context.job_dir().join(&uploads[1]);
+        let zip_entire_folder_path = context.job_dir().join(&artifacts[0].paths[1]);
         fs::create_dir_all(&zip_entire_folder_path).expect("to create test folder in job dir");
         let (file_1, file_1_path) = ("1", "folder/file_1.txt");
         fs::write(job_dir.join(file_1_path), file_1).expect("to write file_1");
@@ -1497,11 +1505,11 @@ mod tests {
         )
         .expect("to write file that will be ignored");
 
-        let upload_step = UploadStep {
+        let upload_step = ArtifactStep {
             index: 2,
             context: &context,
             worker_client: MockWorkerClient::new(),
-            uploads: &uploads,
+            artifacts: &artifacts,
         };
 
         let zip_path = upload_step

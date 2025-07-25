@@ -1,3 +1,4 @@
+use crate::error::ClientError;
 use config::ConfigManager;
 use ctx::{Background, Ctx};
 use jobengine::{JobMeta, ProjectMeta, WorkflowMeta, WorkflowRevisionMeta};
@@ -7,11 +8,9 @@ use mockall::mock;
 use recoil::{Recoil, State};
 use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
-use std::{collections::BTreeMap, fmt, fs::File};
+use std::{collections::BTreeMap, fmt, fs::File, time::Duration};
 use time::OffsetDateTime;
 use uuid::Uuid;
-
-use crate::error::ClientError;
 
 #[derive(Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -25,8 +24,8 @@ pub struct JobResolvedResponse {
 pub enum Step {
     Setup,
     Teardown,
-    Upload {
-        uploads: Vec<String>,
+    Artifact {
+        artifacts: Vec<Artifact>,
     },
     Command {
         cond: String,
@@ -34,6 +33,25 @@ pub enum Step {
         shell: String,
         allow_failure: bool,
     },
+}
+
+#[derive(Debug, Deserialize, Serialize, Eq, PartialEq, Clone, Hash)]
+#[serde(rename_all = "camelCase")]
+/// Represents an artifact to be uploaded after the scan
+pub struct Artifact {
+    /// The name of the artifact
+    pub name: String,
+    /// The paths glob pattern to match files for the artifact
+    pub paths: Vec<String>,
+    #[serde(rename = "if")]
+    /// The condition to check before uploading the artifact
+    pub cond: Option<String>,
+    /// The time after which the artifact expires
+    /// Useful to avoid filling up storage with old artifacts
+    pub expires_in: Option<Duration>,
+    #[serde(default)]
+    /// If true, the artifact will not be tracked by the notification system
+    pub untracked: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

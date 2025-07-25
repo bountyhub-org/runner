@@ -5,7 +5,7 @@ use ctx::{Background, Ctx};
 use miette::{Result, WrapErr};
 use std::path::PathBuf;
 use std::sync::Arc;
-use step::{CommandStep, SetupStep, Step as ShellStep, TeardownStep, UploadStep};
+use step::{ArtifactStep, CommandStep, SetupStep, Step as ShellStep, TeardownStep};
 use uuid::Uuid;
 
 pub mod execution_context;
@@ -63,11 +63,11 @@ where
 
                     step.run(ctx)
                 }
-                Step::Upload { uploads } => {
-                    let step = UploadStep {
+                Step::Artifact { artifacts } => {
+                    let step = ArtifactStep {
                         index,
                         context: &execution_context,
-                        uploads,
+                        artifacts,
                         worker_client,
                     };
 
