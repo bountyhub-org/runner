@@ -25,7 +25,7 @@ pub enum Step {
     Setup,
     Teardown,
     Artifact {
-        artifacts: Vec<Artifact>,
+        artifacts: Vec<WorkflowArtifact>,
     },
     Command {
         cond: String,
@@ -38,7 +38,7 @@ pub enum Step {
 #[derive(Debug, Deserialize, Serialize, Eq, PartialEq, Clone, Hash)]
 #[serde(rename_all = "camelCase")]
 /// Represents an artifact to be uploaded after the scan
-pub struct Artifact {
+pub struct WorkflowArtifact {
     /// The name of the artifact
     pub name: String,
     /// The paths glob pattern to match files for the artifact
@@ -52,6 +52,12 @@ pub struct Artifact {
     #[serde(default)]
     /// If true, the artifact will not be tracked by the notification system
     pub untracked: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct UrlResponse {
+    pub url: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -198,7 +204,7 @@ pub trait WorkerClient: Send + Sync + Clone + 'static {
     fn resolve(&self, ctx: Ctx<Background>) -> Result<JobResolvedResponse>;
     fn post_step_timeline(&self, ctx: Ctx<Background>, timeline: &TimelineRequest) -> Result<()>;
     fn send_job_logs(&self, ctx: Ctx<Background>, logs: &[LogLine]) -> Result<()>;
-    fn upload_job_artifact(&self, ctx: Ctx<Background>, file: File) -> Result<()>;
+    fn upload_job_artifact(&self, ctx: Ctx<Background>, name: &str, file: File) -> Result<()>;
 }
 
 #[derive(Debug, Clone)]
@@ -226,7 +232,7 @@ mock! {
             ctx: Ctx<Background>,
             logs: &[LogLine],
         ) -> Result<()>;
-        fn upload_job_artifact(&self, ctx: Ctx<Background>, file: File) -> Result<()>;
+        fn upload_job_artifact(&self, ctx: Ctx<Background>,name: &str, file: File) -> Result<()>;
     }
 }
 
@@ -355,33 +361,64 @@ impl WorkerClient for HttpWorkerClient {
     }
 
     #[tracing::instrument(skip(self, ctx))]
-    fn upload_job_artifact(&self, ctx: Ctx<Background>, file: File) -> Result<()> {
+    fn upload_job_artifact(&self, ctx: Ctx<Background>, name: &str, file: File) -> Result<()> {
         let (endpoint, token) = (
             format!(
-                "{}/api/v0/jobs/results",
-                &self.config_manager.get()?.fluxy_url
+                "{}/api/v0/jobs/artifact",
+                &self.config_manager.get()?.invoker_url,
             ),
             format!("Bearer {}", self.token),
         );
         let retry = || ctx.is_done();
 
-        let file_size = file.metadata().map_err(ClientError::from)?.len();
+        let UrlResponse { url } = self
+            .recoil
+            .run(|| {
+                tracing::info!("Fetching artifact URL for artifact '{name}'");
+                match self
+                    .default_client
+                    .post(&endpoint)
+                    .header("Authorization", &token)
+                    .send_json(serde_json::json!({"name": name}))
+                    .map_err(ClientError::from)
+                {
+                    Ok(mut res) => {
+                        match res
+                            .body_mut()
+                            .read_json::<UrlResponse>()
+                            .map_err(ClientError::from)
+                        {
+                            Ok(res) => State::Done(res),
+                            Err(e) => State::Fail(e),
+                        }
+                    }
+                    Err(e) if e.is_retryable() => {
+                        tracing::error!(
+                            "Encountered retryable error while fetching the upload url: {e:?}"
+                        );
+                        State::Retry(retry)
+                    }
+                    Err(e) => State::Fail(e),
+                }
+            })
+            .map_err(ClientError::from)?;
 
         self.recoil
             .run(|| {
                 tracing::info!("Uploading results to {}", endpoint);
                 match self
                     .artifact_client
-                    .put(&endpoint)
+                    .put(&url)
                     .header("Authorization", &token)
-                    .header("Content-Length", &file_size.to_string())
                     .header("Content-Type", "application/octet-stream")
                     .send(&file)
                     .map_err(ClientError::from)
                 {
-                    Ok(res) => State::Done(res),
+                    Ok(_) => State::Done(()),
                     Err(e) if e.is_retryable() => {
-                        tracing::error!("Encountered retryable error: {e:?}");
+                        tracing::error!(
+                            "Encountered retryable error while trying to upload artifact: {e:?}"
+                        );
                         State::Retry(retry)
                     }
                     Err(e) => State::Fail(e),
