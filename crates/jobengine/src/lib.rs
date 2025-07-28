@@ -174,19 +174,40 @@ impl JobEngine {
 pub struct JobMeta {
     pub id: Uuid,
     pub state: String,
-    pub nonce: Option<String>,
+    pub artifacts: BTreeMap<String, ArtifactMeta>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ArtifactMeta {
+    pub checksum: Option<String>,
 }
 
 impl From<JobMeta> for Value {
     fn from(meta: JobMeta) -> Self {
+        let artifacts = Value::Map(
+            meta.artifacts
+                .into_iter()
+                .map(|(k, v)| {
+                    (
+                        Key::from(k),
+                        Value::Map(
+                            vec![(
+                                Key::from("checksum"),
+                                Value::String(v.checksum.unwrap_or_default()),
+                            )]
+                            .into_iter()
+                            .collect(),
+                        ),
+                    )
+                })
+                .collect(),
+        );
+
         Value::Map(
             vec![
                 (Key::from("id"), Value::String(meta.id.to_string())),
                 (Key::from("state"), Value::String(meta.state)),
-                (
-                    Key::from("nonce"),
-                    meta.nonce.map_or(Value::Null, Value::String),
-                ),
+                (Key::from("artifacts"), artifacts),
             ]
             .into_iter()
             .collect(),
@@ -317,23 +338,24 @@ fn has_diff(env: &Environment, tokens: &[TokenTree]) -> std::result::Result<Valu
     let scans: Vec<JobMeta> = scans.try_from_value()?;
 
     let mut scans = scans.into_iter();
-    let latest = match scans.next() {
+    let _latest = match scans.next() {
         Some(job) if job.state == "succeeded" => job.clone(),
         _ => return Ok(Value::Bool(false)),
     };
 
-    if latest.nonce.is_none() {
-        return Ok(Value::Bool(false));
-    }
+    // if latest.nonce.is_none() {
+    //     return Ok(Value::Bool(false));
+    // }
 
     // Find the next succeeded job and compare the nonce
-    let previous = match scans.find(|job| job.state == "succeeded") {
+    let _previous = match scans.find(|job| job.state == "succeeded") {
         Some(job) => job,
         // No previous job so this one is a diff
         None => return Ok(Value::Bool(true)),
     };
 
-    Ok(Value::Bool(previous.nonce != latest.nonce))
+    Ok(true.into())
+    // Ok(Value::Bool(previous.nonce != latest.nonce))
 }
 
 #[cfg(test)]
@@ -370,7 +392,7 @@ mod tests {
             vec![JobMeta {
                 id: Uuid::now_v7(),
                 state: "succeeded".to_string(),
-                nonce: None,
+                artifacts: BTreeMap::default(),
             }],
         );
         scan_jobs.insert("scan2".to_string(), vec![]);
@@ -387,7 +409,7 @@ mod tests {
             vec![JobMeta {
                 id: Uuid::now_v7(),
                 state: "succeeded".to_string(),
-                nonce: None,
+                artifacts: BTreeMap::default(),
             }],
         );
         scan_jobs.insert("scan1".to_string(), vec![]);
@@ -414,7 +436,7 @@ mod tests {
             vec![JobMeta {
                 id: ids[1],
                 state: "succeeded".to_string(),
-                nonce: None,
+                artifacts: BTreeMap::default(),
             }],
         );
         scan_jobs.insert(
@@ -422,7 +444,7 @@ mod tests {
             vec![JobMeta {
                 id: ids[0],
                 state: "succeeded".to_string(),
-                nonce: None,
+                artifacts: BTreeMap::default(),
             }],
         );
 
@@ -439,7 +461,7 @@ mod tests {
             vec![JobMeta {
                 id: ids[0],
                 state: "succeeded".to_string(),
-                nonce: None,
+                artifacts: BTreeMap::default(),
             }],
         );
         scan_jobs.insert(
@@ -447,7 +469,7 @@ mod tests {
             vec![JobMeta {
                 id: ids[1],
                 state: "failed".to_string(),
-                nonce: None,
+                artifacts: BTreeMap::default(),
             }],
         );
 
@@ -464,7 +486,7 @@ mod tests {
             vec![JobMeta {
                 id: ids[0],
                 state: "failed".to_string(),
-                nonce: None,
+                artifacts: BTreeMap::default(),
             }],
         );
         scan_jobs.insert(
@@ -472,7 +494,7 @@ mod tests {
             vec![JobMeta {
                 id: ids[1],
                 state: "succeeded".to_string(),
-                nonce: None,
+                artifacts: BTreeMap::default(),
             }],
         );
 
@@ -489,7 +511,7 @@ mod tests {
             vec![JobMeta {
                 id: ids[1],
                 state: "failed".to_string(),
-                nonce: None,
+                artifacts: BTreeMap::default(),
             }],
         );
         scan_jobs.insert(
@@ -497,7 +519,7 @@ mod tests {
             vec![JobMeta {
                 id: ids[0],
                 state: "succeeded".to_string(),
-                nonce: None,
+                artifacts: BTreeMap::default(),
             }],
         );
 
@@ -514,7 +536,7 @@ mod tests {
             vec![JobMeta {
                 id: ids[0],
                 state: "succeeded".to_string(),
-                nonce: None,
+                artifacts: BTreeMap::default(),
             }],
         );
         scan_jobs.insert(
@@ -522,7 +544,7 @@ mod tests {
             vec![JobMeta {
                 id: ids[1],
                 state: "succeeded".to_string(),
-                nonce: None,
+                artifacts: BTreeMap::default(),
             }],
         );
 
@@ -546,7 +568,7 @@ mod tests {
             vec![JobMeta {
                 id: Uuid::now_v7(),
                 state: "failed".to_string(),
-                nonce: None,
+                artifacts: BTreeMap::default(),
             }],
         );
         let cfg = test_config(Uuid::now_v7(), "scan1", scan_jobs);
@@ -561,7 +583,7 @@ mod tests {
             vec![JobMeta {
                 id: Uuid::now_v7(),
                 state: "succeeded".to_string(),
-                nonce: None,
+                artifacts: BTreeMap::default(),
             }],
         );
         let cfg = test_config(Uuid::now_v7(), "scan1", scan_jobs);
@@ -576,7 +598,7 @@ mod tests {
             vec![JobMeta {
                 id: Uuid::now_v7(),
                 state: "succeeded".to_string(),
-                nonce: Some("nonce".to_string()),
+                artifacts: BTreeMap::default(),
             }],
         );
         let cfg = test_config(Uuid::now_v7(), "scan1", scan_jobs);
@@ -586,7 +608,6 @@ mod tests {
     #[test]
     fn test_has_diff_on_two_with_same_nonce() {
         let mut scan_jobs = BTreeMap::new();
-        let nonce = "nonce".to_string();
         let ids = [Uuid::now_v7(), Uuid::now_v7()];
         scan_jobs.insert(
             "scan1".to_string(),
@@ -594,12 +615,12 @@ mod tests {
                 JobMeta {
                     id: ids[1],
                     state: "succeeded".to_string(),
-                    nonce: Some(nonce.clone()),
+                    artifacts: BTreeMap::default(),
                 },
                 JobMeta {
                     id: ids[0],
                     state: "succeeded".to_string(),
-                    nonce: Some(nonce),
+                    artifacts: BTreeMap::default(),
                 },
             ],
         );
@@ -610,7 +631,6 @@ mod tests {
     #[test]
     fn test_has_diff_on_two_with_latest_failed() {
         let mut scan_jobs = BTreeMap::new();
-        let nonce = "nonce".to_string();
         let ids = [Uuid::now_v7(), Uuid::now_v7()];
         scan_jobs.insert(
             "scan1".to_string(),
@@ -618,12 +638,12 @@ mod tests {
                 JobMeta {
                     id: ids[1],
                     state: "succeeded".to_string(),
-                    nonce: Some(nonce.clone()),
+                    artifacts: BTreeMap::default(),
                 },
                 JobMeta {
                     id: ids[0],
                     state: "failed".to_string(),
-                    nonce: Some(nonce),
+                    artifacts: BTreeMap::default(),
                 },
             ],
         );
@@ -641,12 +661,12 @@ mod tests {
                 JobMeta {
                     id: ids[1],
                     state: "failed".to_string(),
-                    nonce: Some("latest".to_string()),
+                    artifacts: BTreeMap::default(),
                 },
                 JobMeta {
                     id: ids[0],
                     state: "succeeded".to_string(),
-                    nonce: Some("previous".to_string()),
+                    artifacts: BTreeMap::default(),
                 },
             ],
         );

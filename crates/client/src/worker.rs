@@ -379,6 +379,7 @@ impl WorkerClient for HttpWorkerClient {
                     .default_client
                     .post(&endpoint)
                     .header("Authorization", &token)
+                    .header("Content-Type", "application/json")
                     .send_json(serde_json::json!({"name": name}))
                     .map_err(ClientError::from)
                 {
