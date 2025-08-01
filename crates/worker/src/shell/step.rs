@@ -1,5 +1,5 @@
 use super::execution_context::ExecutionContext;
-use cellang::Value;
+use cellang::{Value, ValueType};
 use client::worker::{LogLine, TimelineRequestStepState, WorkflowArtifact};
 use client::worker::{TimelineRequest, TimelineRequestStepOutcome, WorkerClient};
 use ctx::{Background, Ctx};
@@ -624,6 +624,24 @@ where
             .wrap_err("Failed to post step timeline")?;
 
         for artifact in self.artifacts {
+            if let Some(cond) = &artifact.cond {
+                let eval = self
+                    .context
+                    .eval_expr(cond)
+                    .wrap_err("failed to evaluate artifact condition")?;
+
+                if !matches!(eval.type_of(), ValueType::Bool) {
+                    return Err(miette::miette!("evaluated value {eval:?} is not boolean"));
+                }
+                if eval == false.into() {
+                    tracing::info!(
+                        "Skipping uploading artifact '{}' since condition evaluated to false",
+                        artifact.name
+                    );
+                    continue;
+                }
+            }
+
             tracing::info!("Processing artifact: {}", artifact.name);
             let path_buf = match self.zip_artifact(artifact) {
                 Ok(path) => path,
@@ -647,15 +665,6 @@ where
                 .upload_job_artifact(ctx.clone(), &artifact.name, file)
             {
                 Ok(_) => {
-                    let timeline_request = TimelineRequest {
-                        index: self.index,
-                        state: TimelineRequestStepState::Succeeded,
-                    };
-                    tracing::debug!("Posting step state: {timeline_request:?}");
-                    self.worker_client
-                        .post_step_timeline(ctx.clone(), &timeline_request)
-                        .wrap_err("Failed to post step timeline")?;
-                    tracing::debug!("Posted step state: {timeline_request:?}");
                     tracing::info!("Artifact {} uploaded successfully", artifact.name);
                 }
                 Err(e) => {
@@ -664,6 +673,16 @@ where
                 }
             };
         }
+
+        let timeline_request = TimelineRequest {
+            index: self.index,
+            state: TimelineRequestStepState::Succeeded,
+        };
+        tracing::debug!("Posting step state: {timeline_request:?}");
+        self.worker_client
+            .post_step_timeline(ctx.clone(), &timeline_request)
+            .wrap_err("Failed to post step timeline")?;
+        tracing::debug!("Posted step state: {timeline_request:?}");
 
         Ok(true)
     }
