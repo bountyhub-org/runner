@@ -1,14 +1,13 @@
 use crate::error::ClientError;
 use config::ConfigManager;
 use ctx::{Background, Ctx};
-use jobengine::{JobMeta, ProjectMeta, WorkflowMeta, WorkflowRevisionMeta};
 use miette::Result;
 #[cfg(feature = "mockall")]
 use mockall::mock;
 use recoil::{Recoil, State};
 use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
-use std::{collections::BTreeMap, fmt, fs::File, time::Duration};
+use std::{fmt, fs::File, time::Duration};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
@@ -58,42 +57,6 @@ pub struct WorkflowArtifact {
 #[serde(rename_all = "camelCase")]
 pub struct UrlResponse {
     pub url: String,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct JobExecutionContext {
-    pub scans: BTreeMap<String, Vec<JobMeta>>,
-    pub vars: BTreeMap<String, String>,
-    pub project: ProjectMeta,
-    pub workflow: WorkflowMeta,
-    pub revision: WorkflowRevisionMeta,
-}
-
-#[derive(Serialize, Debug, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct JobContext {
-    pub id: Uuid,
-    pub state: String,
-    pub nonce: Option<String>,
-}
-
-#[derive(Serialize, Debug, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct ProjectContext {
-    pub id: Uuid,
-}
-
-#[derive(Serialize, Debug, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct WorkflowContext {
-    pub id: Uuid,
-}
-
-#[derive(Serialize, Debug, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct RevisionContext {
-    pub id: Uuid,
 }
 
 #[derive(Debug, Serialize)]

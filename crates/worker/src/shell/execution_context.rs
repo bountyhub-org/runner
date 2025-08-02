@@ -138,7 +138,7 @@ mod tests {
                     vec![JobMeta {
                         id: Uuid::now_v7(),
                         state: "succeeded".to_string(),
-                        nonce: Some("nonce:example".to_string()),
+                        artifacts: BTreeMap::default(),
                     }],
                 );
                 m
@@ -208,7 +208,7 @@ mod tests {
                     vec![JobMeta {
                         id: Uuid::now_v7(),
                         state: "succeeded".to_string(),
-                        nonce: Some("nonce:example".to_string()),
+                        artifacts: BTreeMap::default(),
                     }],
                 );
                 m

@@ -113,7 +113,6 @@ impl JobEngine {
 
         // Functions
         ctx.set_function("is_available", Arc::new(is_available));
-        ctx.set_function("has_diff", Arc::new(has_diff));
 
         JobEngine { ctx }
     }
@@ -276,6 +275,12 @@ impl From<WorkflowRevisionMeta> for Value {
     }
 }
 
+/// is_available checks if the target job is available based on the current job's state and the
+/// state of the target job.
+///
+/// If in the context of the current scan, the target scan has a job that succeeeded after the last
+/// finished instance of the current scan, it returns true.
+/// Otherwise, it returns false.
 fn is_available(
     env: &Environment,
     tokens: &[TokenTree],
@@ -327,35 +332,6 @@ fn is_available(
     }
 
     Ok((this_scan_latest_id.unwrap() < target_job.unwrap()).into())
-}
-
-fn has_diff(env: &Environment, tokens: &[TokenTree]) -> std::result::Result<Value, miette::Error> {
-    if tokens.len() != 1 {
-        miette::bail!("expected 1 argument, got {}", tokens.len());
-    }
-
-    let scans = cellang::eval_ast(env, &tokens[0])?;
-    let scans: Vec<JobMeta> = scans.try_from_value()?;
-
-    let mut scans = scans.into_iter();
-    let _latest = match scans.next() {
-        Some(job) if job.state == "succeeded" => job.clone(),
-        _ => return Ok(Value::Bool(false)),
-    };
-
-    // if latest.nonce.is_none() {
-    //     return Ok(Value::Bool(false));
-    // }
-
-    // Find the next succeeded job and compare the nonce
-    let _previous = match scans.find(|job| job.state == "succeeded") {
-        Some(job) => job,
-        // No previous job so this one is a diff
-        None => return Ok(Value::Bool(true)),
-    };
-
-    Ok(true.into())
-    // Ok(Value::Bool(previous.nonce != latest.nonce))
 }
 
 #[cfg(test)]
@@ -550,128 +526,6 @@ mod tests {
 
         let cfg = test_config(Uuid::now_v7(), "scan1", scan_jobs);
         assert_eval(&cfg, "scans.scan2.is_available()", true);
-    }
-
-    #[test]
-    fn test_has_diff_on_empty() {
-        let mut scan_jobs = BTreeMap::new();
-        scan_jobs.insert("scan1".to_string(), vec![]);
-        let cfg = test_config(Uuid::now_v7(), "scan1", scan_jobs);
-        assert_eval(&cfg, "scans.scan1.has_diff()", false);
-    }
-
-    #[test]
-    fn test_has_diff_on_one_failed() {
-        let mut scan_jobs = BTreeMap::new();
-        scan_jobs.insert(
-            "scan1".to_string(),
-            vec![JobMeta {
-                id: Uuid::now_v7(),
-                state: "failed".to_string(),
-                artifacts: BTreeMap::default(),
-            }],
-        );
-        let cfg = test_config(Uuid::now_v7(), "scan1", scan_jobs);
-        assert_eval(&cfg, "scans.scan1.has_diff()", false);
-    }
-
-    #[test]
-    fn test_has_diff_on_one_no_nonce() {
-        let mut scan_jobs = BTreeMap::new();
-        scan_jobs.insert(
-            "scan1".to_string(),
-            vec![JobMeta {
-                id: Uuid::now_v7(),
-                state: "succeeded".to_string(),
-                artifacts: BTreeMap::default(),
-            }],
-        );
-        let cfg = test_config(Uuid::now_v7(), "scan1", scan_jobs);
-        assert_eval(&cfg, "scans.scan1.has_diff()", false);
-    }
-
-    #[test]
-    fn test_has_diff_on_one_with_nonce() {
-        let mut scan_jobs = BTreeMap::new();
-        scan_jobs.insert(
-            "scan1".to_string(),
-            vec![JobMeta {
-                id: Uuid::now_v7(),
-                state: "succeeded".to_string(),
-                artifacts: BTreeMap::default(),
-            }],
-        );
-        let cfg = test_config(Uuid::now_v7(), "scan1", scan_jobs);
-        assert_eval(&cfg, "scans.scan1.has_diff()", true);
-    }
-
-    #[test]
-    fn test_has_diff_on_two_with_same_nonce() {
-        let mut scan_jobs = BTreeMap::new();
-        let ids = [Uuid::now_v7(), Uuid::now_v7()];
-        scan_jobs.insert(
-            "scan1".to_string(),
-            vec![
-                JobMeta {
-                    id: ids[1],
-                    state: "succeeded".to_string(),
-                    artifacts: BTreeMap::default(),
-                },
-                JobMeta {
-                    id: ids[0],
-                    state: "succeeded".to_string(),
-                    artifacts: BTreeMap::default(),
-                },
-            ],
-        );
-        let cfg = test_config(Uuid::now_v7(), "scan1", scan_jobs);
-        assert_eval(&cfg, "scans.scan1.has_diff()", false);
-    }
-
-    #[test]
-    fn test_has_diff_on_two_with_latest_failed() {
-        let mut scan_jobs = BTreeMap::new();
-        let ids = [Uuid::now_v7(), Uuid::now_v7()];
-        scan_jobs.insert(
-            "scan1".to_string(),
-            vec![
-                JobMeta {
-                    id: ids[1],
-                    state: "succeeded".to_string(),
-                    artifacts: BTreeMap::default(),
-                },
-                JobMeta {
-                    id: ids[0],
-                    state: "failed".to_string(),
-                    artifacts: BTreeMap::default(),
-                },
-            ],
-        );
-        let cfg = test_config(Uuid::now_v7(), "scan1", scan_jobs);
-        assert_eval(&cfg, "scans.scan1.has_diff()", true);
-    }
-
-    #[test]
-    fn test_has_diff_on_latest_failed_scan() {
-        let mut scan_jobs = BTreeMap::new();
-        let ids = [Uuid::now_v7(), Uuid::now_v7()];
-        scan_jobs.insert(
-            "scan1".to_string(),
-            vec![
-                JobMeta {
-                    id: ids[1],
-                    state: "failed".to_string(),
-                    artifacts: BTreeMap::default(),
-                },
-                JobMeta {
-                    id: ids[0],
-                    state: "succeeded".to_string(),
-                    artifacts: BTreeMap::default(),
-                },
-            ],
-        );
-        let cfg = test_config(Uuid::now_v7(), "scan1", scan_jobs);
-        assert_eval(&cfg, "scans.scan1.has_diff()", false);
     }
 
     #[test]
