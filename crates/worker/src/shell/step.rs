@@ -1,6 +1,6 @@
 use super::execution_context::ExecutionContext;
-use cellang::Value;
-use client::worker::{LogLine, TimelineRequestStepState};
+use cellang::{Value, ValueType};
+use client::worker::{LogLine, TimelineRequestStepState, WorkflowArtifact};
 use client::worker::{TimelineRequest, TimelineRequestStepOutcome, WorkerClient};
 use ctx::{Background, Ctx};
 use miette::{IntoDiagnostic, Result, WrapErr, bail};
@@ -583,17 +583,17 @@ where
 }
 
 #[derive(Debug)]
-pub struct UploadStep<'a, C>
+pub struct ArtifactStep<'a, C>
 where
     C: WorkerClient,
 {
     pub index: u32,
     pub context: &'a ExecutionContext,
-    pub uploads: &'a Vec<String>,
+    pub artifacts: &'a Vec<WorkflowArtifact>,
     pub worker_client: C,
 }
 
-impl<C> Step for UploadStep<'_, C>
+impl<C> Step for ArtifactStep<'_, C>
 where
     C: WorkerClient,
 {
@@ -623,49 +623,76 @@ where
             .post_step_timeline(ctx.clone(), &timeline_request)
             .wrap_err("Failed to post step timeline")?;
 
-        let path_buf = match self.create_zip_file() {
-            Ok(path) => path,
-            Err(e) => {
-                let msg = format!("Failed to create zip file: {e:?}");
-                return self.fail_with_message(ctx.clone(), &msg);
-            }
-        };
+        for artifact in self.artifacts {
+            if let Some(cond) = &artifact.cond {
+                let eval = self
+                    .context
+                    .eval_expr(cond)
+                    .wrap_err("failed to evaluate artifact condition")?;
 
-        let file = match File::open(&path_buf) {
-            Ok(file) => file,
-            Err(e) => {
-                let msg = format!("Failed to open file after zipping: {e:?}");
-                return self.fail_with_message(ctx.clone(), &msg);
+                if !matches!(eval.type_of(), ValueType::Bool) {
+                    return Err(miette::miette!("evaluated value {eval:?} is not boolean"));
+                }
+                if eval == false.into() {
+                    tracing::info!(
+                        "Skipping uploading artifact '{}' since condition evaluated to false",
+                        artifact.name
+                    );
+                    continue;
+                }
             }
-        };
 
-        match self.worker_client.upload_job_artifact(ctx.clone(), file) {
-            Ok(_) => {
-                let timeline_request = TimelineRequest {
-                    index: self.index,
-                    state: TimelineRequestStepState::Succeeded,
-                };
-                tracing::debug!("Posting step state: {timeline_request:?}");
-                self.worker_client
-                    .post_step_timeline(ctx.clone(), &timeline_request)
-                    .wrap_err("Failed to post step timeline")?;
-                tracing::debug!("Posted step state: {timeline_request:?}");
+            tracing::info!("Processing artifact: {}", artifact.name);
+            let path_buf = match self.zip_artifact(artifact) {
+                Ok(path) => path,
+                Err(e) => {
+                    let msg = format!("Failed to create zip file: {e:?}");
+                    return self.fail_with_message(ctx.clone(), &msg);
+                }
+            };
 
-                Ok(true)
-            }
-            Err(e) => {
-                let msg = format!("Failed to upload job artifact: {e:?}");
-                return self.fail_with_message(ctx.clone(), &msg);
-            }
+            let file = match File::open(&path_buf) {
+                Ok(file) => file,
+                Err(e) => {
+                    let msg = format!("Failed to open file after zipping: {e:?}");
+                    return self.fail_with_message(ctx.clone(), &msg);
+                }
+            };
+
+            tracing::info!("Uploading artifact: {}", artifact.name);
+            match self
+                .worker_client
+                .upload_job_artifact(ctx.clone(), &artifact.name, file)
+            {
+                Ok(_) => {
+                    tracing::info!("Artifact {} uploaded successfully", artifact.name);
+                }
+                Err(e) => {
+                    let msg = format!("Failed to upload job artifact: {e:?}");
+                    return self.fail_with_message(ctx.clone(), &msg);
+                }
+            };
         }
+
+        let timeline_request = TimelineRequest {
+            index: self.index,
+            state: TimelineRequestStepState::Succeeded,
+        };
+        tracing::debug!("Posting step state: {timeline_request:?}");
+        self.worker_client
+            .post_step_timeline(ctx.clone(), &timeline_request)
+            .wrap_err("Failed to post step timeline")?;
+        tracing::debug!("Posted step state: {timeline_request:?}");
+
+        Ok(true)
     }
 }
 
-impl<C> UploadStep<'_, C>
+impl<C> ArtifactStep<'_, C>
 where
     C: WorkerClient,
 {
-    fn create_zip_file(&self) -> Result<PathBuf> {
+    fn zip_artifact(&self, artifact: &WorkflowArtifact) -> Result<PathBuf> {
         let workdir = PathBuf::from(self.context.job_dir());
         let result_path = workdir.join(format!("{}.zip", Uuid::new_v4()));
 
@@ -681,10 +708,10 @@ where
             .into_diagnostic()
             .wrap_err("Failed to canonicalize the workdir")?;
 
-        for upload in self.uploads {
-            let path = normalize_abs_path(&workdir, Path::new(upload.as_str())).wrap_err(
-                format!("Failed to normalize path: workdir={workdir:?}, path={upload}"),
-            )?;
+        for path in &artifact.paths {
+            let path = normalize_abs_path(&workdir, Path::new(path.as_str())).wrap_err(format!(
+                "Failed to normalize path: workdir={workdir:?}, path={path}"
+            ))?;
 
             if path.is_dir() {
                 add_dir_to_zip(&mut zip, &path, &workdir, option)?;
@@ -891,7 +918,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use client::worker::{LogDestination, MockWorkerClient};
+    use client::worker::{LogDestination, MockWorkerClient, WorkflowArtifact};
     use jobengine::{ProjectMeta, WorkflowMeta, WorkflowRevisionMeta};
     use std::{
         collections::{BTreeMap, BTreeSet},
@@ -1468,18 +1495,24 @@ mod tests {
 
         let config = new_jobengine_context("example");
         let context = ExecutionContext::new(test_dir.dir.clone(), Arc::new(vec![]), config);
-        let uploads = vec![
-            "file_0.txt".to_string(),
-            "folder/".to_string(),
-            "example/file_3.txt".to_string(),
-        ];
+        let artifacts = vec![WorkflowArtifact {
+            name: "result".to_string(),
+            paths: vec![
+                "file_0.txt".to_string(),
+                "folder/".to_string(),
+                "example/file_3.txt".to_string(),
+            ],
+            cond: None,
+            untracked: false,
+            expires_in: None,
+        }];
         let job_dir = context.job_dir();
         fs::create_dir_all(job_dir).expect("create job dir");
 
         let (file_0, file_0_path) = ("0", "file_0.txt");
         fs::write(job_dir.join(file_0_path), file_0).expect("to write file_0");
 
-        let zip_entire_folder_path = context.job_dir().join(&uploads[1]);
+        let zip_entire_folder_path = context.job_dir().join(&artifacts[0].paths[1]);
         fs::create_dir_all(&zip_entire_folder_path).expect("to create test folder in job dir");
         let (file_1, file_1_path) = ("1", "folder/file_1.txt");
         fs::write(job_dir.join(file_1_path), file_1).expect("to write file_1");
@@ -1497,15 +1530,15 @@ mod tests {
         )
         .expect("to write file that will be ignored");
 
-        let upload_step = UploadStep {
+        let artifact_step = ArtifactStep {
             index: 2,
             context: &context,
             worker_client: MockWorkerClient::new(),
-            uploads: &uploads,
+            artifacts: &artifacts,
         };
 
-        let zip_path = upload_step
-            .create_zip_file()
+        let zip_path = artifact_step
+            .zip_artifact(&artifact_step.artifacts[0])
             .expect("create zip file to succeed");
 
         assert!(zip_path.is_file());
