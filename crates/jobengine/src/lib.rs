@@ -11,7 +11,7 @@ use uuid::Uuid;
 pub struct Config {
     /// id of the job from which the evaluation is done
     pub id: Uuid,
-    /// The name of the job from which the evaluation is done
+    /// The scan name this job belongs to
     pub name: String,
     /// Variables associated with the project
     #[serde(default)]
@@ -30,7 +30,7 @@ pub struct Config {
     pub project: ProjectMeta,
     /// Workflow metadata
     pub workflow: WorkflowMeta,
-    /// Workflow revision metadata
+    /// Revision metadata
     pub revision: WorkflowRevisionMeta,
 }
 

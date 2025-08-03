@@ -9,7 +9,6 @@ use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 use std::{fmt, fs::File, time::Duration};
 use time::OffsetDateTime;
-use uuid::Uuid;
 
 #[derive(Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -168,15 +167,6 @@ pub trait WorkerClient: Send + Sync + Clone + 'static {
     fn post_step_timeline(&self, ctx: Ctx<Background>, timeline: &TimelineRequest) -> Result<()>;
     fn send_job_logs(&self, ctx: Ctx<Background>, logs: &[LogLine]) -> Result<()>;
     fn upload_job_artifact(&self, ctx: Ctx<Background>, name: &str, file: File) -> Result<()>;
-}
-
-#[derive(Debug, Clone)]
-pub struct StepRef {
-    pub project_id: Uuid,
-    pub workflow_id: Uuid,
-    pub revision_id: Uuid,
-    pub job_id: Uuid,
-    pub step_index: u32,
 }
 
 #[cfg(feature = "mockall")]
