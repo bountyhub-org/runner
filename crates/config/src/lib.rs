@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::{Arc, RwLock};
-use std::{fs, io};
+use std::{env, fs, io};
 use thiserror::Error;
 use url::Url;
 use uuid::Uuid;
@@ -33,13 +33,18 @@ impl ConfigManager {
             }
         }
 
+        let home = bountyhub_home()?;
+
         let mut c = self.inner.write().expect("write lock to succeed");
-        let config: Config =
-            serde_json::from_str(&fs::read_to_string(CONFIG_FILE).into_diagnostic().wrap_err(
-                format!("Failed to read config file {CONFIG_FILE} from present working directory"),
-            )?)
-            .into_diagnostic()
-            .wrap_err("Failed to deserialize configuration")?;
+        let config: Config = serde_json::from_str(
+            &fs::read_to_string(home.join(CONFIG_FILE))
+                .into_diagnostic()
+                .wrap_err(format!(
+                    "Failed to read config file {CONFIG_FILE} from present working directory"
+                ))?,
+        )
+        .into_diagnostic()
+        .wrap_err("Failed to deserialize configuration")?;
 
         config.validate().wrap_err("Invalid configuration")?;
 
@@ -54,13 +59,27 @@ impl ConfigManager {
             .into_diagnostic()
             .wrap_err("Failed to serialize configuration")?;
 
-        fs::write(CONFIG_FILE, content)
+        let home = bountyhub_home()?;
+
+        fs::create_dir_all(&home)
+            .into_diagnostic()
+            .wrap_err("Failed to create .bountyhub directory")?;
+
+        let config_dir = home.join(CONFIG_FILE);
+
+        fs::write(config_dir, content)
             .into_diagnostic()
             .wrap_err("Failed to write config to a file")?;
 
         *c = Some(cfg.clone());
         Ok(())
     }
+}
+
+pub fn bountyhub_home() -> Result<PathBuf> {
+    Ok(env::home_dir()
+        .ok_or_else(|| miette!("Failed to get home directory"))?
+        .join(".bountyhub"))
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
