@@ -37,10 +37,10 @@ impl ConfigManager {
             }
         }
 
-        let home = runner_home(self.name.as_str())?;
+        let runner_home = runner_home(self.name.as_str())?;
 
         let mut c = self.inner.write().expect("write lock to succeed");
-        let path = home.join(CONFIG_FILE);
+        let path = runner_home.join(CONFIG_FILE);
         let config: Config =
             serde_json::from_str(&fs::read_to_string(&path).into_diagnostic().wrap_err(
                 format!("Failed to read config file {path:?} from present working directory"),

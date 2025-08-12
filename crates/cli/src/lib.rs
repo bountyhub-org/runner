@@ -1,10 +1,11 @@
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::{Shell, generate};
 use client::bountyhub::{BountyHubClient, RegistrationRequest, ReleaseResponse};
-use client::client_set::ClientSet;
+use client::client_set::{ClientSet, ClientSetConfig};
 use client::worker::HttpWorkerClient;
 use ctx::{Background, Ctx};
 use miette::{IntoDiagnostic, Result, WrapErr, bail};
+use recoil::Recoil;
 use runner::Runner;
 use std::io::{self, Write};
 use std::path::PathBuf;
@@ -93,7 +94,14 @@ enum ServiceCommands {
 
 impl Cli {
     pub fn run(self, ctx: Ctx<Background>) -> Result<()> {
-        let client_set = ClientSet::default();
+        let config_manager = ConfigManager::new(self.name.clone());
+
+        let client_set = ClientSet::new(ClientSetConfig {
+            user_agent: format!("runner/{} (cli)", env!("CARGO_PKG_VERSION")),
+            recoil: Recoil::default(),
+            config_manager: config_manager.clone(),
+        });
+
         match self.command {
             Commands::Configure {
                 token,
@@ -114,8 +122,6 @@ impl Cli {
                 config::validate_token(&token).wrap_err("Invalid token")?;
                 config::validate_workdir_str(&workdir).wrap_err("Invalid workdir")?;
                 config::validate_capacity(capacity).wrap_err("Invalid capacity")?;
-
-                let config_manager = ConfigManager::new(name.clone());
 
                 let request = RegistrationRequest {
                     name,
@@ -244,7 +250,6 @@ impl Cli {
                 Ok(())
             }
             Commands::Run {} => {
-                let config_manager = ConfigManager::new(self.name);
                 config_manager.get().wrap_err("Failed to get config")?;
 
                 let worker_env: Arc<Vec<(String, String)>> = Arc::new(dotenv::vars().collect());
