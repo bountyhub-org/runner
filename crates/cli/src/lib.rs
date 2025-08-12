@@ -29,6 +29,15 @@ use config::{self, Config, ConfigManager};
 pub struct Cli {
     #[command(subcommand)]
     command: Commands,
+
+    #[arg(
+        long,
+        default_value = "runner",
+        global = true,
+        help = "Name of the runner. Used to identify the runner in the BountyHub platform.",
+        default_value_t = config::generate_default_name()
+    )]
+    name: String,
 }
 
 #[derive(Debug, Subcommand)]
@@ -40,9 +49,6 @@ enum Commands {
 
         #[arg(short, long)]
         url: String,
-
-        #[arg(short, long)]
-        name: Option<String>,
 
         #[arg(short, long, default_value = "_work")]
         workdir: String,
@@ -88,26 +94,19 @@ enum ServiceCommands {
 impl Cli {
     pub fn run(self, ctx: Ctx<Background>) -> Result<()> {
         let client_set = ClientSet::default();
-        let config_manager = ConfigManager::new();
-
         match self.command {
             Commands::Configure {
                 token,
                 url,
-                name,
                 workdir,
                 capacity,
                 unattended,
             } => {
-                let name = match name {
-                    Some(name) => name,
-                    None => {
-                        if unattended {
-                            config::generate_default_name()
-                        } else {
-                            prompt::runner_name().wrap_err("failed to prompt for runner name")?
-                        }
-                    }
+                let name = if unattended {
+                    self.name.clone()
+                } else {
+                    prompt::runner_name(self.name.as_str())
+                        .wrap_err("failed to prompt for runner name")?
                 };
 
                 config::validate_name(&name).wrap_err("Invalid name")?;
@@ -115,6 +114,8 @@ impl Cli {
                 config::validate_token(&token).wrap_err("Invalid token")?;
                 config::validate_workdir_str(&workdir).wrap_err("Invalid workdir")?;
                 config::validate_capacity(capacity).wrap_err("Invalid capacity")?;
+
+                let config_manager = ConfigManager::new(name.clone());
 
                 let request = RegistrationRequest {
                     name,
@@ -152,6 +153,7 @@ impl Cli {
                 Ok(())
             }
             Commands::Service { action } => {
+                let config_manager = ConfigManager::new(self.name);
                 let cfg = config_manager
                     .get()
                     .wrap_err("Failed to get configuration")?;
@@ -242,6 +244,7 @@ impl Cli {
                 Ok(())
             }
             Commands::Run {} => {
+                let config_manager = ConfigManager::new(self.name);
                 config_manager.get().wrap_err("Failed to get config")?;
 
                 let worker_env: Arc<Vec<(String, String)>> = Arc::new(dotenv::vars().collect());
@@ -262,6 +265,7 @@ impl Cli {
                 Ok(())
             }
             Commands::Upgrade {} => {
+                let config_manager = ConfigManager::new(self.name);
                 let client = client_set.bountyhub_client(&config_manager.get()?.hub_url);
                 let ReleaseResponse { version } = client
                     .get_latest_runner_release(ctx.clone())

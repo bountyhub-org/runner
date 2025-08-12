@@ -1,11 +1,11 @@
 use miette::{IntoDiagnostic, Result, WrapErr};
 use std::io::{self, BufRead, Write};
 
-pub(crate) fn runner_name() -> Result<String> {
+pub(crate) fn runner_name(default: &str) -> Result<String> {
     let mut stdout = io::stdout();
     let stdin = io::stdin();
 
-    let default_runner_name = config::generate_default_name();
+    let default_runner_name = default.to_string();
 
     let mut buf = String::new();
     loop {

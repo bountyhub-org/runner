@@ -17,12 +17,16 @@ pub const VERSION: &str = env!("BUILD_VERSION");
 /// and keep it in memory and writing through.
 #[derive(Debug, Clone, Default)]
 pub struct ConfigManager {
+    name: String,
     inner: Arc<RwLock<Option<Config>>>,
 }
 
 impl ConfigManager {
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(name: String) -> Self {
+        Self {
+            name,
+            inner: Arc::new(RwLock::new(None)),
+        }
     }
 
     pub fn get(&self) -> Result<Config> {
@@ -33,18 +37,16 @@ impl ConfigManager {
             }
         }
 
-        let home = bountyhub_home()?;
+        let home = runner_home(self.name.as_str())?;
 
         let mut c = self.inner.write().expect("write lock to succeed");
-        let config: Config = serde_json::from_str(
-            &fs::read_to_string(home.join(CONFIG_FILE))
-                .into_diagnostic()
-                .wrap_err(format!(
-                    "Failed to read config file {CONFIG_FILE} from present working directory"
-                ))?,
-        )
-        .into_diagnostic()
-        .wrap_err("Failed to deserialize configuration")?;
+        let path = home.join(CONFIG_FILE);
+        let config: Config =
+            serde_json::from_str(&fs::read_to_string(&path).into_diagnostic().wrap_err(
+                format!("Failed to read config file {path:?} from present working directory"),
+            )?)
+            .into_diagnostic()
+            .wrap_err("Failed to deserialize configuration")?;
 
         config.validate().wrap_err("Invalid configuration")?;
 
@@ -59,7 +61,7 @@ impl ConfigManager {
             .into_diagnostic()
             .wrap_err("Failed to serialize configuration")?;
 
-        let home = bountyhub_home()?;
+        let home = runner_home(&cfg.name)?;
 
         fs::create_dir_all(&home)
             .into_diagnostic()
@@ -80,6 +82,10 @@ pub fn bountyhub_home() -> Result<PathBuf> {
     Ok(env::home_dir()
         .ok_or_else(|| miette!("Failed to get home directory"))?
         .join(".bountyhub"))
+}
+
+pub fn runner_home(name: &str) -> Result<PathBuf> {
+    Ok(bountyhub_home()?.join("runner").join(name))
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
@@ -265,7 +271,7 @@ mod tests {
             workdir: test_dir.dir.clone(),
             capacity: 1,
         };
-        let cm = ConfigManager::new();
+        let cm = ConfigManager::new("test".to_string());
         cm.put(&cfg)
             .unwrap_or_else(|e| panic!("to save config to directory {test_dir:?}: {e:?}"));
         let got = cm.get().expect("to get the config");
