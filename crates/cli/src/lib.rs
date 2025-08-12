@@ -51,8 +51,8 @@ enum Commands {
         #[arg(short, long)]
         url: String,
 
-        #[arg(short, long, default_value = "_work")]
-        workdir: String,
+        #[arg(short, long)]
+        workdir: Option<PathBuf>,
 
         #[arg(short, long, default_value = "1")]
         capacity: u32,
@@ -117,16 +117,26 @@ impl Cli {
                         .wrap_err("failed to prompt for runner name")?
                 };
 
+                let workdir = match workdir {
+                    Some(wd) => wd,
+                    None => {
+                        let default_workdir = config::runner_home(self.name.as_str())
+                            .wrap_err("failed to determine runner home")?
+                            .join("workdir");
+                        prompt::runner_workdir(default_workdir)
+                            .wrap_err("failed to prompt for runner workdir")?
+                    }
+                };
                 config::validate_name(&name).wrap_err("Invalid name")?;
                 config::validate_url(&url).wrap_err("Invalid URL")?;
                 config::validate_token(&token).wrap_err("Invalid token")?;
-                config::validate_workdir_str(&workdir).wrap_err("Invalid workdir")?;
+                config::validate_workdir(&workdir).wrap_err("Invalid workdir")?;
                 config::validate_capacity(capacity).wrap_err("Invalid capacity")?;
 
                 let request = RegistrationRequest {
                     name,
                     token,
-                    workdir,
+                    workdir: workdir.to_string_lossy().to_string(),
                 };
 
                 let client = client_set.bountyhub_client(&url);

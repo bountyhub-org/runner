@@ -1,7 +1,6 @@
 use miette::{Diagnostic, IntoDiagnostic, LabeledSpan, Result, WrapErr, bail, miette};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use std::str::FromStr;
 use std::sync::{Arc, RwLock};
 use std::{env, fs, io};
 use thiserror::Error;
@@ -125,14 +124,6 @@ pub fn validate_workdir(workdir: &PathBuf) -> Result<()> {
         bail!("Workdir {workdir:?} is file");
     }
 
-    Ok(())
-}
-
-#[tracing::instrument(skip(workdir))]
-pub fn validate_workdir_str(workdir: &str) -> Result<()> {
-    PathBuf::from_str(workdir)
-        .into_diagnostic()
-        .wrap_err("Failed to parse workdir as path")?;
     Ok(())
 }
 

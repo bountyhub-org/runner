@@ -672,17 +672,18 @@ where
                     return self.fail_with_message(ctx.clone(), &msg);
                 }
             };
+            tracing::info!("Posted artifact step");
         }
 
         let timeline_request = TimelineRequest {
             index: self.index,
             state: TimelineRequestStepState::Succeeded,
         };
-        tracing::debug!("Posting step state: {timeline_request:?}");
+        tracing::info!("Posting step state: {timeline_request:?}");
         self.worker_client
             .post_step_timeline(ctx.clone(), &timeline_request)
             .wrap_err("Failed to post step timeline")?;
-        tracing::debug!("Posted step state: {timeline_request:?}");
+        tracing::info!("Posted step state: {timeline_request:?}");
 
         Ok(true)
     }
