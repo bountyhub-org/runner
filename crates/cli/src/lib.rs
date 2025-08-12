@@ -1,10 +1,11 @@
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::{Shell, generate};
 use client::bountyhub::{BountyHubClient, RegistrationRequest, ReleaseResponse};
-use client::client_set::ClientSet;
+use client::client_set::{ClientSet, ClientSetConfig};
 use client::worker::HttpWorkerClient;
 use ctx::{Background, Ctx};
 use miette::{IntoDiagnostic, Result, WrapErr, bail};
+use recoil::Recoil;
 use runner::Runner;
 use std::io::{self, Write};
 use std::path::PathBuf;
@@ -29,6 +30,15 @@ use config::{self, Config, ConfigManager};
 pub struct Cli {
     #[command(subcommand)]
     command: Commands,
+
+    #[arg(
+        long,
+        default_value = "runner",
+        global = true,
+        help = "Name of the runner. Used to identify the runner in the BountyHub platform.",
+        default_value_t = config::generate_default_name()
+    )]
+    name: String,
 }
 
 #[derive(Debug, Subcommand)]
@@ -42,10 +52,7 @@ enum Commands {
         url: String,
 
         #[arg(short, long)]
-        name: Option<String>,
-
-        #[arg(short, long, default_value = "_work")]
-        workdir: String,
+        workdir: Option<PathBuf>,
 
         #[arg(short, long, default_value = "1")]
         capacity: u32,
@@ -87,39 +94,49 @@ enum ServiceCommands {
 
 impl Cli {
     pub fn run(self, ctx: Ctx<Background>) -> Result<()> {
-        let client_set = ClientSet::default();
-        let config_manager = ConfigManager::new();
+        let config_manager = ConfigManager::new(self.name.clone());
+
+        let client_set = ClientSet::new(ClientSetConfig {
+            user_agent: format!("runner/{} (cli)", env!("CARGO_PKG_VERSION")),
+            recoil: Recoil::default(),
+            config_manager: config_manager.clone(),
+        });
 
         match self.command {
             Commands::Configure {
                 token,
                 url,
-                name,
                 workdir,
                 capacity,
                 unattended,
             } => {
-                let name = match name {
-                    Some(name) => name,
-                    None => {
-                        if unattended {
-                            config::generate_default_name()
-                        } else {
-                            prompt::runner_name().wrap_err("failed to prompt for runner name")?
-                        }
-                    }
+                let name = if unattended {
+                    self.name.clone()
+                } else {
+                    prompt::runner_name(self.name.as_str())
+                        .wrap_err("failed to prompt for runner name")?
                 };
 
+                let workdir = match workdir {
+                    Some(wd) => wd,
+                    None => {
+                        let default_workdir = config::runner_home(self.name.as_str())
+                            .wrap_err("failed to determine runner home")?
+                            .join("workdir");
+                        prompt::runner_workdir(default_workdir)
+                            .wrap_err("failed to prompt for runner workdir")?
+                    }
+                };
                 config::validate_name(&name).wrap_err("Invalid name")?;
                 config::validate_url(&url).wrap_err("Invalid URL")?;
                 config::validate_token(&token).wrap_err("Invalid token")?;
-                config::validate_workdir_str(&workdir).wrap_err("Invalid workdir")?;
+                config::validate_workdir(&workdir).wrap_err("Invalid workdir")?;
                 config::validate_capacity(capacity).wrap_err("Invalid capacity")?;
 
                 let request = RegistrationRequest {
                     name,
                     token,
-                    workdir,
+                    workdir: workdir.to_string_lossy().to_string(),
                 };
 
                 let client = client_set.bountyhub_client(&url);
@@ -152,6 +169,7 @@ impl Cli {
                 Ok(())
             }
             Commands::Service { action } => {
+                let config_manager = ConfigManager::new(self.name);
                 let cfg = config_manager
                     .get()
                     .wrap_err("Failed to get configuration")?;
@@ -262,6 +280,7 @@ impl Cli {
                 Ok(())
             }
             Commands::Upgrade {} => {
+                let config_manager = ConfigManager::new(self.name);
                 let client = client_set.bountyhub_client(&config_manager.get()?.hub_url);
                 let ReleaseResponse { version } = client
                     .get_latest_runner_release(ctx.clone())

@@ -304,6 +304,7 @@ dependencies = [
  "ctx",
  "dotenv",
  "miette",
+ "recoil",
  "runner",
  "self_update",
  "sudoservice",

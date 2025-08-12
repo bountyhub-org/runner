@@ -1,9 +1,8 @@
 use miette::{Diagnostic, IntoDiagnostic, LabeledSpan, Result, WrapErr, bail, miette};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use std::str::FromStr;
 use std::sync::{Arc, RwLock};
-use std::{fs, io};
+use std::{env, fs, io};
 use thiserror::Error;
 use url::Url;
 use uuid::Uuid;
@@ -17,12 +16,16 @@ pub const VERSION: &str = env!("BUILD_VERSION");
 /// and keep it in memory and writing through.
 #[derive(Debug, Clone, Default)]
 pub struct ConfigManager {
+    name: String,
     inner: Arc<RwLock<Option<Config>>>,
 }
 
 impl ConfigManager {
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(name: String) -> Self {
+        Self {
+            name,
+            inner: Arc::new(RwLock::new(None)),
+        }
     }
 
     pub fn get(&self) -> Result<Config> {
@@ -33,10 +36,13 @@ impl ConfigManager {
             }
         }
 
+        let runner_home = runner_home(self.name.as_str())?;
+
         let mut c = self.inner.write().expect("write lock to succeed");
+        let path = runner_home.join(CONFIG_FILE);
         let config: Config =
-            serde_json::from_str(&fs::read_to_string(CONFIG_FILE).into_diagnostic().wrap_err(
-                format!("Failed to read config file {CONFIG_FILE} from present working directory"),
+            serde_json::from_str(&fs::read_to_string(&path).into_diagnostic().wrap_err(
+                format!("Failed to read config file {path:?} from present working directory"),
             )?)
             .into_diagnostic()
             .wrap_err("Failed to deserialize configuration")?;
@@ -54,13 +60,31 @@ impl ConfigManager {
             .into_diagnostic()
             .wrap_err("Failed to serialize configuration")?;
 
-        fs::write(CONFIG_FILE, content)
+        let home = runner_home(&cfg.name)?;
+
+        fs::create_dir_all(&home)
+            .into_diagnostic()
+            .wrap_err("Failed to create .bountyhub directory")?;
+
+        let config_dir = home.join(CONFIG_FILE);
+
+        fs::write(config_dir, content)
             .into_diagnostic()
             .wrap_err("Failed to write config to a file")?;
 
         *c = Some(cfg.clone());
         Ok(())
     }
+}
+
+pub fn bountyhub_home() -> Result<PathBuf> {
+    Ok(env::home_dir()
+        .ok_or_else(|| miette!("Failed to get home directory"))?
+        .join(".bountyhub"))
+}
+
+pub fn runner_home(name: &str) -> Result<PathBuf> {
+    Ok(bountyhub_home()?.join("runner").join(name))
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
@@ -100,14 +124,6 @@ pub fn validate_workdir(workdir: &PathBuf) -> Result<()> {
         bail!("Workdir {workdir:?} is file");
     }
 
-    Ok(())
-}
-
-#[tracing::instrument(skip(workdir))]
-pub fn validate_workdir_str(workdir: &str) -> Result<()> {
-    PathBuf::from_str(workdir)
-        .into_diagnostic()
-        .wrap_err("Failed to parse workdir as path")?;
     Ok(())
 }
 
@@ -246,7 +262,7 @@ mod tests {
             workdir: test_dir.dir.clone(),
             capacity: 1,
         };
-        let cm = ConfigManager::new();
+        let cm = ConfigManager::new("test".to_string());
         cm.put(&cfg)
             .unwrap_or_else(|e| panic!("to save config to directory {test_dir:?}: {e:?}"));
         let got = cm.get().expect("to get the config");
