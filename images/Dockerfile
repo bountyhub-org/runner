@@ -1,4 +1,4 @@
-FROM --platform=$BUILDPLATFORM rust:1.87.0 AS base
+FROM --platform=$BUILDPLATFORM rust:1.89.0 AS base
 
 RUN cargo install sccache --version ^0.10
 RUN cargo install cargo-chef --version ^0.1
