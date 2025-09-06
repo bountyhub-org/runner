@@ -37,9 +37,10 @@ impl InnerCtx {
         }
         self.children.lock().unwrap().iter_mut().for_each(|weak| {
             if let Some(inner) = weak.upgrade()
-                && !inner.is_done() {
-                    inner.cancel();
-                }
+                && !inner.is_done()
+            {
+                inner.cancel();
+            }
         });
     }
 

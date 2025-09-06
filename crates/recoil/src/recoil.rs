@@ -53,9 +53,10 @@ impl Recoil {
         let mut retries = 0;
         loop {
             if let Some(max_retries) = self.max_retries
-                && retries > max_retries {
-                    return Err(Error::MaxRetriesReachedError);
-                }
+                && retries > max_retries
+            {
+                return Err(Error::MaxRetriesReachedError);
+            }
             match f() {
                 State::Done(t) => return Ok(t),
                 State::Retry(cancel) => {
