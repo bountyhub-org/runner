@@ -36,10 +36,10 @@ impl InnerCtx {
             done.store(true, std::sync::atomic::Ordering::Relaxed);
         }
         self.children.lock().unwrap().iter_mut().for_each(|weak| {
-            if let Some(inner) = weak.upgrade() {
-                if !inner.is_done() {
-                    inner.cancel();
-                }
+            if let Some(inner) = weak.upgrade()
+                && !inner.is_done()
+            {
+                inner.cancel();
             }
         });
     }
