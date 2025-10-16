@@ -359,7 +359,7 @@ impl WorkerClient for HttpWorkerClient {
 
         self.recoil
             .run(|| {
-                tracing::info!("Uploading results to {}", endpoint);
+                tracing::info!("Uploading results to {}", url);
                 match self
                     .artifact_client
                     .put(&url)
