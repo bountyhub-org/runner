@@ -289,27 +289,6 @@ fn is_available(
         miette::bail!("expected 1 argument, got {}", tokens.len());
     }
 
-    let name = match env.lookup_variable("name").expect("name field is missing") {
-        Value::String(name) => name,
-        _ => miette::bail!("name field is missing"),
-    };
-
-    let this_scan_latest_id = match env.lookup_variable("scans").unwrap() {
-        Value::Map(m) => {
-            let value = match m
-                .get(&Key::from(name))
-                .expect("key should be of correct type")
-            {
-                Some(value) => value,
-                None => miette::bail!("map value for key {name} is missing"),
-            };
-
-            let jobs: Vec<JobMeta> = cellang::try_from_value(value.clone())?;
-            jobs.first().map(|job| Some(job.id)).unwrap_or(None)
-        }
-        _ => miette::bail!("scans field is missing"),
-    };
-
     let scans = cellang::eval_ast(env, &tokens[0])?;
 
     let target_job: Option<Uuid> = scans
@@ -327,11 +306,77 @@ fn is_available(
         return Ok(false.into());
     }
 
-    if this_scan_latest_id.is_none() {
-        return Ok(true.into());
-    }
+    let this_job = match this_jobs(env)?.first().cloned() {
+        Some(job) => job,
+        None => return Ok(true.into()),
+    };
 
-    Ok((this_scan_latest_id.unwrap() < target_job.unwrap()).into())
+    Ok((this_job.id < target_job.unwrap()).into())
+}
+
+// fn has_diff(env: &Environment, tokens: &[TokenTree]) -> std::result::Result<Value, miette::Error> {
+//     if tokens.len() != 2 {
+//         miette::bail!("expected 2 arguments, got {}", tokens.len());
+//     }
+//
+//     // evaluate the target scan jobs
+//     let scans = cellang::eval_ast(env, &tokens[0])?;
+//     let target_jobs: Vec<JobMeta> = scans
+//         .try_from_value::<Vec<JobMeta>>()?
+//         .into_iter()
+//         .filter(|job| job.state == "succeeded")
+//         .collect::<_>();
+//
+//     // if there is no succeeded job, return false
+//     if target_jobs.is_empty() {
+//         return Ok(false.into());
+//     }
+//
+//     // if this target doesn't contain artifacts anyway, return false
+//     if target_jobs.first().unwrap().artifacts.is_empty() {
+//         return Ok(false.into());
+//     }
+//
+//     // if it does, get the current job
+//     let this_jobs = this_jobs(env)?;
+//
+//     if this_jobs.is_empty() {
+//         return Ok(true.into());
+//     }
+//
+//     // do not resolve to true if this job already executed after the target job
+//     if this_jobs.first().unwrap().id > target_jobs.first().unwrap().id {
+//         return Ok(false.into());
+//     }
+//
+//     let mut target_last_two = target_jobs.iter().take(2);
+//     let target_latest = target_last_two.next().unwrap();
+//
+//     todo!()
+// }
+
+/// this_job retrieves the metadata of the current job from the environment.
+/// It is currently not meant to be exposed, therefore, it is not present in the list of functions.
+fn this_jobs(env: &Environment) -> std::result::Result<Vec<JobMeta>, miette::Error> {
+    let name = match env.lookup_variable("name").expect("name field is missing") {
+        Value::String(name) => name,
+        _ => miette::bail!("name field is missing"),
+    };
+
+    match env.lookup_variable("scans").unwrap() {
+        Value::Map(m) => {
+            let value = match m
+                .get(&Key::from(name))
+                .expect("key should be of correct type")
+            {
+                Some(value) => value,
+                None => miette::bail!("map value for key {name} is missing"),
+            };
+
+            Ok(cellang::try_from_value(value.clone())?)
+        }
+        _ => miette::bail!("scans field is missing"),
+    }
 }
 
 #[cfg(test)]
