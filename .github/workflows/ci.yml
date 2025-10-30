@@ -2,14 +2,16 @@ name: CI
 
 on:
   push:
-    branches: ["main"]
+    branches:
+      - "main"
     paths:
       - ".github/workflows/ci.yaml"
       - "**/*.rs"
       - "**/Cargo.toml"
       - "**/Cargo.lock"
   pull_request:
-    branches: ["main"]
+    branches:
+      - "main"
     paths:
       - ".github/workflows/ci.yaml"
       - "**/*.rs"
@@ -28,7 +30,7 @@ jobs:
     runs-on: ubuntu-latest
     name: stable / fmt
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install stable
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -45,7 +47,7 @@ jobs:
       matrix:
         toolchain: [stable, beta]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install ${{ matrix.toolchain }}
         uses: dtolnay/rust-toolchain@master
         with:
@@ -62,7 +64,7 @@ jobs:
       matrix:
         toolchain: [stable, beta]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install ${{ matrix.toolchain }}
         uses: dtolnay/rust-toolchain@master
         with:
