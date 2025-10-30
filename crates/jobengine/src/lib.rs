@@ -1,5 +1,5 @@
 use cellang::{Environment, EnvironmentBuilder, Key, Map, TokenTree, Value};
-use miette::{Result, WrapErr};
+use miette::{IntoDiagnostic, Result, WrapErr};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -113,6 +113,7 @@ impl JobEngine {
 
         // Functions
         ctx.set_function("is_available", Arc::new(is_available));
+        ctx.set_function("has_diff", Arc::new(has_diff));
 
         JobEngine { ctx }
     }
@@ -289,27 +290,6 @@ fn is_available(
         miette::bail!("expected 1 argument, got {}", tokens.len());
     }
 
-    let name = match env.lookup_variable("name").expect("name field is missing") {
-        Value::String(name) => name,
-        _ => miette::bail!("name field is missing"),
-    };
-
-    let this_scan_latest_id = match env.lookup_variable("scans").unwrap() {
-        Value::Map(m) => {
-            let value = match m
-                .get(&Key::from(name))
-                .expect("key should be of correct type")
-            {
-                Some(value) => value,
-                None => miette::bail!("map value for key {name} is missing"),
-            };
-
-            let jobs: Vec<JobMeta> = cellang::try_from_value(value.clone())?;
-            jobs.first().map(|job| Some(job.id)).unwrap_or(None)
-        }
-        _ => miette::bail!("scans field is missing"),
-    };
-
     let scans = cellang::eval_ast(env, &tokens[0])?;
 
     let target_job: Option<Uuid> = scans
@@ -327,11 +307,123 @@ fn is_available(
         return Ok(false.into());
     }
 
-    if this_scan_latest_id.is_none() {
+    let this_job = match this_jobs(env)?.first().cloned() {
+        Some(job) => job,
+        None => return Ok(true.into()),
+    };
+
+    Ok((this_job.id < target_job.unwrap()).into())
+}
+
+fn has_diff(env: &Environment, tokens: &[TokenTree]) -> std::result::Result<Value, miette::Error> {
+    if tokens.len() != 2 {
+        miette::bail!("expected 2 arguments, got {}", tokens.len());
+    }
+
+    let this_id = match env.lookup_variable("id").expect("id field is missing") {
+        Value::String(name) => Uuid::parse_str(name)
+            .into_diagnostic()
+            .wrap_err("failed to parse this id")?,
+        _ => miette::bail!("name field is missing"),
+    };
+
+    let artifact_name = match cellang::eval_ast(env, &tokens[1])?.try_value()? {
+        Value::String(name) => name.to_owned(),
+        _ => miette::bail!("expected a string as artifact name"),
+    };
+
+    // evaluate the target scan jobs
+    let scans = cellang::eval_ast(env, &tokens[0])?;
+    let target_jobs: Vec<JobMeta> = scans
+        .try_from_value::<Vec<JobMeta>>()?
+        .into_iter()
+        .filter(|job| job.state == "succeeded")
+        .filter(|job| {
+            job.artifacts
+                .iter()
+                .any(|(name, _)| **name == artifact_name)
+        })
+        .collect::<_>();
+
+    // if there is no succeeded job, return false
+    if target_jobs.is_empty() {
+        return Ok(false.into());
+    }
+
+    // if this target doesn't contain artifacts anyway, return false
+    if target_jobs.first().unwrap().artifacts.is_empty() {
+        return Ok(false.into());
+    }
+
+    // if it does, get the current scan jobs without this job
+    let this_jobs = this_jobs(env)?
+        .into_iter()
+        .filter(|job| job.id != this_id)
+        .collect::<Vec<_>>();
+
+    if this_jobs.is_empty() {
         return Ok(true.into());
     }
 
-    Ok((this_scan_latest_id.unwrap() < target_job.unwrap()).into())
+    // do not resolve to true if this job already executed after the target job
+    if this_jobs.first().unwrap().id > target_jobs.first().unwrap().id {
+        return Ok(false.into());
+    }
+
+    // compare the latest two succeeded jobs' artifact checksums
+    let mut target_last_two = target_jobs.iter().take(2);
+    let target_latest = target_last_two
+        .next()
+        .unwrap()
+        .artifacts
+        .iter()
+        .find_map(|(name, meta)| {
+            if name == &artifact_name {
+                meta.checksum.clone()
+            } else {
+                None
+            }
+        })
+        .unwrap_or_default();
+
+    let target_previous = target_last_two
+        .next()
+        .and_then(|job| {
+            job.artifacts.iter().find_map(|(name, meta)| {
+                if name == &artifact_name {
+                    meta.checksum.clone()
+                } else {
+                    None
+                }
+            })
+        })
+        .unwrap_or_default();
+
+    Ok((target_latest != target_previous).into())
+}
+
+/// this_job retrieves the metadata of the current job from the environment.
+/// It is currently not meant to be exposed, therefore, it is not present in the list of functions.
+fn this_jobs(env: &Environment) -> std::result::Result<Vec<JobMeta>, miette::Error> {
+    let name = match env.lookup_variable("name").expect("name field is missing") {
+        Value::String(name) => name,
+        _ => miette::bail!("name field is missing"),
+    };
+
+    match env.lookup_variable("scans").unwrap() {
+        Value::Map(m) => {
+            let value = match m
+                .get(&Key::from(name))
+                .expect("key should be of correct type")
+            {
+                Some(value) => value,
+                None => miette::bail!("map value for key {name} is missing"),
+            };
+
+            Ok(cellang::try_from_value(value.clone())?)
+        }
+        _ => miette::bail!("scans field is missing"),
+    }
 }
 
 #[cfg(test)]
@@ -526,6 +618,242 @@ mod tests {
 
         let cfg = test_config(Uuid::now_v7(), "scan1", scan_jobs);
         assert_eval(&cfg, "scans.scan2.is_available()", true);
+    }
+
+    #[test]
+    fn test_has_diff_target_empty() {
+        let mut scan_jobs = BTreeMap::new();
+        scan_jobs.insert(
+            "scan1".to_string(),
+            vec![JobMeta {
+                id: Uuid::now_v7(),
+                state: "succeeded".to_string(),
+                artifacts: BTreeMap::default(),
+            }],
+        );
+        scan_jobs.insert("scan2".to_string(), vec![]);
+
+        let cfg = test_config(Uuid::now_v7(), "scan1", scan_jobs);
+        assert_eval(&cfg, "scans.scan2.has_diff('artifact1')", false);
+    }
+
+    #[test]
+    fn test_has_diff_self_empty() {
+        let mut scan_jobs = BTreeMap::new();
+        scan_jobs.insert(
+            "scan2".to_string(),
+            vec![JobMeta {
+                id: Uuid::now_v7(),
+                state: "succeeded".to_string(),
+                artifacts: {
+                    let mut m = BTreeMap::default();
+                    m.insert(
+                        "artifact1".to_string(),
+                        ArtifactMeta {
+                            checksum: Some("checksum1".to_string()),
+                        },
+                    );
+                    m
+                },
+            }],
+        );
+        scan_jobs.insert("scan1".to_string(), vec![]);
+
+        let cfg = test_config(Uuid::now_v7(), "scan1", scan_jobs);
+        assert_eval(&cfg, "scans.scan2.has_diff('artifact1')", true);
+    }
+
+    #[test]
+    fn test_has_diff_both_empty() {
+        let mut scan_jobs = BTreeMap::new();
+        scan_jobs.insert("scan1".to_string(), vec![]);
+        scan_jobs.insert("scan2".to_string(), vec![]);
+        let cfg = test_config(Uuid::now_v7(), "scan1", scan_jobs);
+        assert_eval(&cfg, "scans.scan2.has_diff('artifact1')", false);
+    }
+
+    #[test]
+    fn test_has_diff_no_artifact_in_target() {
+        let mut scan_jobs = BTreeMap::new();
+        let ids = [Uuid::now_v7(), Uuid::now_v7()];
+        scan_jobs.insert(
+            "scan1".to_string(),
+            vec![JobMeta {
+                id: ids[0],
+                state: "succeeded".to_string(),
+                artifacts: BTreeMap::default(),
+            }],
+        );
+        scan_jobs.insert(
+            "scan2".to_string(),
+            vec![JobMeta {
+                id: ids[1],
+                state: "succeeded".to_string(),
+                artifacts: BTreeMap::default(),
+            }],
+        );
+
+        let cfg = test_config(Uuid::now_v7(), "scan1", scan_jobs);
+        assert_eval(&cfg, "scans.scan2.has_diff('artifact1')", false);
+    }
+
+    #[test]
+    fn test_has_diff_but_last_instance_already_executed() {
+        let mut scan_jobs = BTreeMap::new();
+        let ids = [Uuid::now_v7(), Uuid::now_v7()];
+        scan_jobs.insert(
+            "scan1".to_string(),
+            vec![JobMeta {
+                id: ids[1],
+                state: "succeeded".to_string(),
+                artifacts: BTreeMap::default(),
+            }],
+        );
+        scan_jobs.insert(
+            "scan2".to_string(),
+            vec![JobMeta {
+                id: ids[0],
+                state: "succeeded".to_string(),
+                artifacts: BTreeMap::default(),
+            }],
+        );
+
+        let cfg = test_config(Uuid::now_v7(), "scan1", scan_jobs);
+        assert_eval(&cfg, "scans.scan2.has_diff('artifact1')", false);
+    }
+
+    #[test]
+    fn test_has_diff_single_artifact() {
+        let mut scan_jobs = BTreeMap::new();
+        let ids = [Uuid::now_v7(), Uuid::now_v7()];
+        scan_jobs.insert(
+            "scan1".to_string(),
+            vec![JobMeta {
+                id: ids[0],
+                state: "succeeded".to_string(),
+                artifacts: BTreeMap::default(),
+            }],
+        );
+        scan_jobs.insert(
+            "scan2".to_string(),
+            vec![JobMeta {
+                id: ids[1],
+                state: "succeeded".to_string(),
+                artifacts: {
+                    let mut m = BTreeMap::default();
+                    m.insert(
+                        "artifact1".to_string(),
+                        ArtifactMeta {
+                            checksum: Some("checksum1".to_string()),
+                        },
+                    );
+                    m
+                },
+            }],
+        );
+
+        let cfg = test_config(Uuid::now_v7(), "scan1", scan_jobs);
+        assert_eval(&cfg, "scans.scan2.has_diff('artifact1')", true);
+    }
+
+    #[test]
+    fn test_has_diff_multiple_artifacts() {
+        let mut scan_jobs = BTreeMap::new();
+        let ids = [Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7()];
+        scan_jobs.insert(
+            "scan1".to_string(),
+            vec![JobMeta {
+                id: ids[1],
+                state: "succeeded".to_string(),
+                artifacts: BTreeMap::default(),
+            }],
+        );
+        scan_jobs.insert(
+            "scan2".to_string(),
+            vec![
+                JobMeta {
+                    id: ids[2],
+                    state: "succeeded".to_string(),
+                    artifacts: {
+                        let mut m = BTreeMap::default();
+                        m.insert(
+                            "artifact1".to_string(),
+                            ArtifactMeta {
+                                checksum: Some("checksum1".to_string()),
+                            },
+                        );
+                        m
+                    },
+                },
+                JobMeta {
+                    id: ids[0],
+                    state: "succeeded".to_string(),
+                    artifacts: {
+                        let mut m = BTreeMap::default();
+                        m.insert(
+                            "artifact1".to_string(),
+                            ArtifactMeta {
+                                checksum: Some("checksum2".to_string()),
+                            },
+                        );
+                        m
+                    },
+                },
+            ],
+        );
+
+        let cfg = test_config(Uuid::now_v7(), "scan1", scan_jobs);
+        assert_eval(&cfg, "scans.scan2.has_diff('artifact1')", true);
+    }
+
+    #[test]
+    fn test_has_no_diff_multiple_artifacts() {
+        let mut scan_jobs = BTreeMap::new();
+        let ids = [Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7()];
+        scan_jobs.insert(
+            "scan1".to_string(),
+            vec![JobMeta {
+                id: ids[1],
+                state: "succeeded".to_string(),
+                artifacts: BTreeMap::default(),
+            }],
+        );
+        scan_jobs.insert(
+            "scan2".to_string(),
+            vec![
+                JobMeta {
+                    id: ids[2],
+                    state: "succeeded".to_string(),
+                    artifacts: {
+                        let mut m = BTreeMap::default();
+                        m.insert(
+                            "artifact1".to_string(),
+                            ArtifactMeta {
+                                checksum: Some("checksum1".to_string()),
+                            },
+                        );
+                        m
+                    },
+                },
+                JobMeta {
+                    id: ids[0],
+                    state: "succeeded".to_string(),
+                    artifacts: {
+                        let mut m = BTreeMap::default();
+                        m.insert(
+                            "artifact1".to_string(),
+                            ArtifactMeta {
+                                checksum: Some("checksum1".to_string()),
+                            },
+                        );
+                        m
+                    },
+                },
+            ],
+        );
+
+        let cfg = test_config(Uuid::now_v7(), "scan1", scan_jobs);
+        assert_eval(&cfg, "scans.scan2.has_diff('artifact1')", false);
     }
 
     #[test]
