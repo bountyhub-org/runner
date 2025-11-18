@@ -1,4 +1,6 @@
-use cellang::{Environment, EnvironmentBuilder, Key, Map, TokenTree, Value};
+use cellang::{
+    Atom, Environment, EnvironmentBuilder, Key, KeyType, Map, TokenTree, Value, dynamic::Dyn,
+};
 use miette::{IntoDiagnostic, Result, WrapErr};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -114,6 +116,7 @@ impl JobEngine {
         // Functions
         ctx.set_function("is_available", Arc::new(is_available));
         ctx.set_function("has_diff", Arc::new(has_diff));
+        ctx.set_function("find", Arc::new(find));
 
         JobEngine { ctx }
     }
@@ -400,6 +403,52 @@ fn has_diff(env: &Environment, tokens: &[TokenTree]) -> std::result::Result<Valu
         .unwrap_or_default();
 
     Ok((target_latest != target_previous).into())
+}
+
+/// Finds the first element in the list that satisfies the given lambda condition.
+/// Returns `Null` if no such element is found.
+///
+/// Example usage: `l.find(x, p)`, where
+/// - l: List of elements
+/// - x: Identifier for each element in the list
+/// - p: Lambda expression that returns a boolean
+fn find(env: &Environment, tokens: &[TokenTree]) -> std::result::Result<Value, miette::Error> {
+    if tokens.len() != 3 {
+        miette::bail!("expected 2 arguments, got {}", tokens.len());
+    }
+
+    let lhs = cellang::eval_ast(env, &tokens[0])?;
+    let list: &Vec<Value> = match lhs.try_value()? {
+        Value::List(list) => list.inner(),
+        Value::Dyn(Dyn::List(list)) => &list.iter().map(|v| Value::Dyn(v.clone())).collect(),
+        ty => miette::bail!("expected a list type, got {ty:?}",),
+    };
+
+    // expect second parameter to be an identifier
+    let key = match &tokens[1] {
+        TokenTree::Atom(Atom::Ident(ident)) => Key::from(*ident),
+        _ => miette::bail!("Invalid identifier type for all: {:?}", tokens[1]),
+    };
+
+    let lambda = &tokens[2];
+
+    let mut variables = Map::with_type_and_capacity(KeyType::String, 1);
+    for item in list.iter() {
+        variables.insert(key.clone(), item.clone())?;
+        let mut env = env.child();
+
+        env.set_variables(&variables);
+        match cellang::eval_ast(&env, lambda)?.try_value()? {
+            Value::Bool(b) => {
+                if *b {
+                    return Ok(item.clone());
+                }
+            }
+            _ => miette::bail!("Invalid type for exists: {:?}", lambda),
+        }
+    }
+
+    Ok(Value::Null)
 }
 
 /// this_job retrieves the metadata of the current job from the environment.
@@ -854,6 +903,33 @@ mod tests {
 
         let cfg = test_config(Uuid::now_v7(), "scan1", scan_jobs);
         assert_eval(&cfg, "scans.scan2.has_diff('artifact1')", false);
+    }
+
+    #[test]
+    fn test_find_empty_list() {
+        let scan_jobs = BTreeMap::new();
+        let cfg = test_config(Uuid::now_v7(), "scan1", scan_jobs);
+        let engine = JobEngine::new(&cfg);
+        let result = engine.eval_expr("[].find(x, x == 1)").unwrap();
+        assert_eq!(result, Value::Null);
+    }
+
+    #[test]
+    fn test_find_no_match() {
+        let scan_jobs = BTreeMap::new();
+        let cfg = test_config(Uuid::now_v7(), "scan1", scan_jobs);
+        let engine = JobEngine::new(&cfg);
+        let result = engine.eval_expr("[1, 2, 3].find(x, x == 4)").unwrap();
+        assert_eq!(result, Value::Null);
+    }
+
+    #[test]
+    fn test_find_with_match() {
+        let scan_jobs = BTreeMap::new();
+        let cfg = test_config(Uuid::now_v7(), "scan1", scan_jobs);
+        let engine = JobEngine::new(&cfg);
+        let result = engine.eval_expr("[1, 2, 3].find(x, x == 2)").unwrap();
+        assert_eq!(result, Value::Int(2));
     }
 
     #[test]
