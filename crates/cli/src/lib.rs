@@ -123,8 +123,12 @@ impl Cli {
                         let default_workdir = config::runner_home(self.name.as_str())
                             .wrap_err("failed to determine runner home")?
                             .join("workdir");
-                        prompt::runner_workdir(default_workdir)
-                            .wrap_err("failed to prompt for runner workdir")?
+                        if unattended {
+                            default_workdir
+                        } else {
+                            prompt::runner_workdir(default_workdir)
+                                .wrap_err("failed to prompt for runner workdir")?
+                        }
                     }
                 };
                 config::validate_name(&name).wrap_err("Invalid name")?;
