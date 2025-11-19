@@ -269,7 +269,10 @@ where
         let index = self.index;
         loop {
             match child.try_wait() {
-                Ok(Some(_)) => break,
+                Ok(Some(_)) => {
+                    tracing::info!("Command finished");
+                    break;
+                }
                 Ok(None) => {
                     if !ctx.is_done() {
                         thread::sleep(Duration::from_millis(250));
