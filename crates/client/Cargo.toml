@@ -3,7 +3,7 @@ name = "client"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-authors = [ "Nikola Jokic <nikola.jokic@bountyhub.org" ]
+authors = ["Nikola Jokic <nikola.jokic@bountyhub.org"]
 description = "Client set for BountyHub runner"
 readme = "README.md"
 keywords = ["bountyhub", "runner", "client"]
@@ -20,7 +20,7 @@ mockall = { version = "0.13", optional = true }
 serde_repr = "^0.1"
 serde_json = "^1"
 uuid = { version = "^1", features = ["serde"] }
-cellang = { version = "^0.4" }
+cellang = { version = "^0.5" }
 jobengine = { path = "../jobengine" }
 ctx = { path = "../ctx" }
 recoil = { path = "../recoil" }

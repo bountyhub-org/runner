@@ -3,14 +3,14 @@ name = "worker"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-authors = [ "Nikola Jokic <nikola.jokic@bountyhub.org>" ]
+authors = ["Nikola Jokic <nikola.jokic@bountyhub.org>"]
 resolver = "2"
 readme = "README.md"
 keywords = ["bountyhub", "runner", "worker"]
 
 [dependencies]
 tracing = "^0.1"
-cellang = { version = "^0.4" }
+cellang = { version = "^0.5" }
 uuid = { version = "^1", features = ["v4"] }
 miette = { version = "^7" }
 shlex = "1.3"
