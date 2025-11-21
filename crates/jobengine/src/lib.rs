@@ -176,7 +176,6 @@ impl JobEngine {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct JobMeta {
     pub id: Uuid,
-    pub state: String,
     pub artifacts: BTreeMap<String, ArtifactMeta>,
 }
 
@@ -209,7 +208,6 @@ impl From<JobMeta> for Value {
         Value::Map(
             vec![
                 (Key::from("id"), Value::String(meta.id.to_string())),
-                (Key::from("state"), Value::String(meta.state)),
                 (Key::from("artifacts"), artifacts),
             ]
             .into_iter()
@@ -297,14 +295,8 @@ fn is_available(
 
     let target_job: Option<Uuid> = scans
         .try_from_value::<Vec<JobMeta>>()?
-        .into_iter()
-        .find_map(|job| {
-            if job.state == "succeeded" {
-                Some(job.id)
-            } else {
-                None
-            }
-        });
+        .first()
+        .map(|job| job.id);
 
     if target_job.is_none() {
         return Ok(false.into());
@@ -340,7 +332,6 @@ fn has_diff(env: &Environment, tokens: &[TokenTree]) -> std::result::Result<Valu
     let target_jobs: Vec<JobMeta> = scans
         .try_from_value::<Vec<JobMeta>>()?
         .into_iter()
-        .filter(|job| job.state == "succeeded")
         .filter(|job| {
             job.artifacts
                 .iter()
@@ -508,7 +499,6 @@ mod tests {
             "scan1".to_string(),
             vec![JobMeta {
                 id: Uuid::now_v7(),
-                state: "succeeded".to_string(),
                 artifacts: BTreeMap::default(),
             }],
         );
@@ -525,7 +515,6 @@ mod tests {
             "scan2".to_string(),
             vec![JobMeta {
                 id: Uuid::now_v7(),
-                state: "succeeded".to_string(),
                 artifacts: BTreeMap::default(),
             }],
         );
@@ -552,7 +541,6 @@ mod tests {
             "scan1".to_string(),
             vec![JobMeta {
                 id: ids[1],
-                state: "succeeded".to_string(),
                 artifacts: BTreeMap::default(),
             }],
         );
@@ -560,7 +548,6 @@ mod tests {
             "scan2".to_string(),
             vec![JobMeta {
                 id: ids[0],
-                state: "succeeded".to_string(),
                 artifacts: BTreeMap::default(),
             }],
         );
@@ -577,7 +564,6 @@ mod tests {
             "scan1".to_string(),
             vec![JobMeta {
                 id: ids[0],
-                state: "succeeded".to_string(),
                 artifacts: BTreeMap::default(),
             }],
         );
@@ -585,57 +571,6 @@ mod tests {
             "scan2".to_string(),
             vec![JobMeta {
                 id: ids[1],
-                state: "failed".to_string(),
-                artifacts: BTreeMap::default(),
-            }],
-        );
-
-        let cfg = test_config(Uuid::now_v7(), "scan1", scan_jobs);
-        assert_eval(&cfg, "scans.scan2.is_available()", false);
-    }
-
-    #[test]
-    fn test_is_available_self_failed_before_target() {
-        let mut scan_jobs = BTreeMap::new();
-        let ids = [Uuid::now_v7(), Uuid::now_v7()];
-        scan_jobs.insert(
-            "scan1".to_string(),
-            vec![JobMeta {
-                id: ids[0],
-                state: "failed".to_string(),
-                artifacts: BTreeMap::default(),
-            }],
-        );
-        scan_jobs.insert(
-            "scan2".to_string(),
-            vec![JobMeta {
-                id: ids[1],
-                state: "succeeded".to_string(),
-                artifacts: BTreeMap::default(),
-            }],
-        );
-
-        let cfg = test_config(Uuid::now_v7(), "scan1", scan_jobs);
-        assert_eval(&cfg, "scans.scan2.is_available()", true);
-    }
-
-    #[test]
-    fn test_is_available_self_failed_after_target() {
-        let mut scan_jobs = BTreeMap::new();
-        let ids = [Uuid::now_v7(), Uuid::now_v7()];
-        scan_jobs.insert(
-            "scan1".to_string(),
-            vec![JobMeta {
-                id: ids[1],
-                state: "failed".to_string(),
-                artifacts: BTreeMap::default(),
-            }],
-        );
-        scan_jobs.insert(
-            "scan2".to_string(),
-            vec![JobMeta {
-                id: ids[0],
-                state: "succeeded".to_string(),
                 artifacts: BTreeMap::default(),
             }],
         );
@@ -652,7 +587,6 @@ mod tests {
             "scan1".to_string(),
             vec![JobMeta {
                 id: ids[0],
-                state: "succeeded".to_string(),
                 artifacts: BTreeMap::default(),
             }],
         );
@@ -660,7 +594,6 @@ mod tests {
             "scan2".to_string(),
             vec![JobMeta {
                 id: ids[1],
-                state: "succeeded".to_string(),
                 artifacts: BTreeMap::default(),
             }],
         );
@@ -676,7 +609,6 @@ mod tests {
             "scan1".to_string(),
             vec![JobMeta {
                 id: Uuid::now_v7(),
-                state: "succeeded".to_string(),
                 artifacts: BTreeMap::default(),
             }],
         );
@@ -693,7 +625,6 @@ mod tests {
             "scan2".to_string(),
             vec![JobMeta {
                 id: Uuid::now_v7(),
-                state: "succeeded".to_string(),
                 artifacts: {
                     let mut m = BTreeMap::default();
                     m.insert(
@@ -729,7 +660,6 @@ mod tests {
             "scan1".to_string(),
             vec![JobMeta {
                 id: ids[0],
-                state: "succeeded".to_string(),
                 artifacts: BTreeMap::default(),
             }],
         );
@@ -737,7 +667,6 @@ mod tests {
             "scan2".to_string(),
             vec![JobMeta {
                 id: ids[1],
-                state: "succeeded".to_string(),
                 artifacts: BTreeMap::default(),
             }],
         );
@@ -754,7 +683,6 @@ mod tests {
             "scan1".to_string(),
             vec![JobMeta {
                 id: ids[1],
-                state: "succeeded".to_string(),
                 artifacts: BTreeMap::default(),
             }],
         );
@@ -762,7 +690,6 @@ mod tests {
             "scan2".to_string(),
             vec![JobMeta {
                 id: ids[0],
-                state: "succeeded".to_string(),
                 artifacts: BTreeMap::default(),
             }],
         );
@@ -779,7 +706,6 @@ mod tests {
             "scan1".to_string(),
             vec![JobMeta {
                 id: ids[0],
-                state: "succeeded".to_string(),
                 artifacts: BTreeMap::default(),
             }],
         );
@@ -787,7 +713,6 @@ mod tests {
             "scan2".to_string(),
             vec![JobMeta {
                 id: ids[1],
-                state: "succeeded".to_string(),
                 artifacts: {
                     let mut m = BTreeMap::default();
                     m.insert(
@@ -813,7 +738,6 @@ mod tests {
             "scan1".to_string(),
             vec![JobMeta {
                 id: ids[1],
-                state: "succeeded".to_string(),
                 artifacts: BTreeMap::default(),
             }],
         );
@@ -822,7 +746,6 @@ mod tests {
             vec![
                 JobMeta {
                     id: ids[2],
-                    state: "succeeded".to_string(),
                     artifacts: {
                         let mut m = BTreeMap::default();
                         m.insert(
@@ -836,7 +759,6 @@ mod tests {
                 },
                 JobMeta {
                     id: ids[0],
-                    state: "succeeded".to_string(),
                     artifacts: {
                         let mut m = BTreeMap::default();
                         m.insert(
@@ -863,7 +785,6 @@ mod tests {
             "scan1".to_string(),
             vec![JobMeta {
                 id: ids[1],
-                state: "succeeded".to_string(),
                 artifacts: BTreeMap::default(),
             }],
         );
@@ -872,7 +793,6 @@ mod tests {
             vec![
                 JobMeta {
                     id: ids[2],
-                    state: "succeeded".to_string(),
                     artifacts: {
                         let mut m = BTreeMap::default();
                         m.insert(
@@ -886,7 +806,6 @@ mod tests {
                 },
                 JobMeta {
                     id: ids[0],
-                    state: "succeeded".to_string(),
                     artifacts: {
                         let mut m = BTreeMap::default();
                         m.insert(
