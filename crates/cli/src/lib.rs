@@ -59,6 +59,9 @@ enum Commands {
 
         #[arg(long, default_value = "false")]
         unattended: bool,
+
+        #[arg(long, default_value = "false")]
+        replace: bool,
     },
     #[command(about = "Run runner in foreground.")]
     Run {},
@@ -109,6 +112,7 @@ impl Cli {
                 workdir,
                 capacity,
                 unattended,
+                replace,
             } => {
                 let name = if unattended {
                     self.name.clone()
@@ -141,6 +145,7 @@ impl Cli {
                     name,
                     token,
                     workdir: workdir.to_string_lossy().to_string(),
+                    replace,
                 };
 
                 let client = client_set.bountyhub_client(&url);

@@ -13,6 +13,7 @@ pub struct RegistrationRequest {
     pub token: String,
     pub name: String,
     pub workdir: String,
+    pub replace: bool,
 }
 
 #[derive(Deserialize, Debug, Clone)]
