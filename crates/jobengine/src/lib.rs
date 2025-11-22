@@ -557,29 +557,6 @@ mod tests {
     }
 
     #[test]
-    fn test_is_available_self_before_target_but_target_failed() {
-        let mut scan_jobs = BTreeMap::new();
-        let ids = [Uuid::now_v7(), Uuid::now_v7()];
-        scan_jobs.insert(
-            "scan1".to_string(),
-            vec![JobMeta {
-                id: ids[0],
-                artifacts: BTreeMap::default(),
-            }],
-        );
-        scan_jobs.insert(
-            "scan2".to_string(),
-            vec![JobMeta {
-                id: ids[1],
-                artifacts: BTreeMap::default(),
-            }],
-        );
-
-        let cfg = test_config(Uuid::now_v7(), "scan1", scan_jobs);
-        assert_eval(&cfg, "scans.scan2.is_available()", false);
-    }
-
-    #[test]
     fn test_is_available_target_after_self() {
         let mut scan_jobs = BTreeMap::new();
         let ids = [Uuid::now_v7(), Uuid::now_v7()];

@@ -137,7 +137,6 @@ mod tests {
                     "example".to_string(),
                     vec![JobMeta {
                         id: Uuid::now_v7(),
-                        state: "succeeded".to_string(),
                         artifacts: BTreeMap::default(),
                     }],
                 );
@@ -207,7 +206,6 @@ mod tests {
                     "example".to_string(),
                     vec![JobMeta {
                         id: Uuid::now_v7(),
-                        state: "succeeded".to_string(),
                         artifacts: BTreeMap::default(),
                     }],
                 );
