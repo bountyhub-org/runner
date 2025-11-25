@@ -21,6 +21,6 @@ ctx = { path = "../ctx" }
 jobengine = { path = "../jobengine" }
 
 [dev-dependencies]
-mockall = "0.13"
+mockall = "0.14"
 client = { path = "../client", features = ["mockall"] }
 uuid = { version = "^1", features = ["v4", "v7"] }
