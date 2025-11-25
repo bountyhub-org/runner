@@ -19,6 +19,6 @@ ctx = { path = "../ctx" }
 worker = { path = "../worker" }
 
 [dev-dependencies]
-mockall = "0.13"
+mockall = "0.14"
 uuid = { version = "1", features = ["v4", "v7"] }
 client = { path = "../client", features = ["mockall"] }
