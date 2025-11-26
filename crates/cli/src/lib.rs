@@ -120,7 +120,7 @@ impl Cli {
                 let name = if unattended {
                     self.name.clone()
                 } else {
-                    prompt::runner_name(self.name.as_str())
+                    prompt::runner_name(&ctx, self.name.as_str())
                         .wrap_err("failed to prompt for runner name")?
                 };
 
@@ -133,7 +133,7 @@ impl Cli {
                         if unattended {
                             default_workdir
                         } else {
-                            prompt::runner_workdir(default_workdir)
+                            prompt::runner_workdir(&ctx, default_workdir)
                                 .wrap_err("failed to prompt for runner workdir")?
                         }
                     }
