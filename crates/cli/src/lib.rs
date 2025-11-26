@@ -7,12 +7,13 @@ use ctx::{Background, Ctx};
 use miette::{IntoDiagnostic, Result, WrapErr, bail};
 use recoil::Recoil;
 use runner::Runner;
+use std::env;
 use std::io::{self, Write};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
-use sudoservice::service::Service;
-use sudoservice::systemd::{Config as SystemdConfig, Systemd};
+use sudoservice::systemd::service::RestartType;
+use sudoservice::systemd::{Config as SystemdConfig, Exec, Install, Service, Systemd, Unit};
 use uuid::Uuid;
 use worker::shell::ShellWorker;
 
@@ -93,6 +94,8 @@ enum ServiceCommands {
     Restart {},
     #[command(about = "Check runner service status")]
     Status {},
+    #[command(about = "Enable runner service")]
+    Logs {},
 }
 
 impl Cli {
@@ -191,25 +194,46 @@ impl Cli {
 
                 let worker_env: Vec<(String, String)> = dotenv::vars().collect();
 
-                let cfg = SystemdConfig {
-                    name: svc_name.clone(),
-                    display_name: "BountyHub Runner".to_string(),
-                    description: Some("BountyHub Runner started as a service".to_string()),
-                    username: None,
-                    executable: std::env::current_exe()
-                        .into_diagnostic()
-                        .wrap_err("Failed to get current executable path")?,
-                    args: Some(vec!["run".to_string()]),
-                    working_directory: Some(
-                        std::env::current_dir()
-                            .into_diagnostic()
-                            .wrap_err("Failed to get current working directory")?,
-                    ),
-                    environment: Some(worker_env),
-                    ch_root: None,
-                    restart: true,
-                    restart_sec: None,
-                };
+                let cfg = SystemdConfig::new(svc_name.clone())
+                    .unit(
+                        Unit::default()
+                            .description("BountyHub Runner started as a service")
+                            .documentation(vec!["https://docs.bountyhub.org/runners".to_string()])
+                            .start_limit_interval_sec(5)
+                            .start_limit_burst(10),
+                    )
+                    .service(
+                        Service::default()
+                            .restart(RestartType::Always)
+                            .restart_sec(120)
+                            .exec_start(vec![
+                                env::current_exe()
+                                    .into_diagnostic()
+                                    .wrap_err("Failed to get current executable path")?
+                                    .to_string_lossy()
+                                    .to_string(),
+                                "run".to_string(),
+                            ])
+                            .exec(
+                                Exec::new()
+                                    .environment(
+                                        worker_env
+                                            .into_iter()
+                                            .map(|(k, v)| format!("{k}={v}"))
+                                            .collect(),
+                                    )
+                                    .working_directory(
+                                        config_manager
+                                            .get()
+                                            .wrap_err("Runner is not configured")?
+                                            .workdir,
+                                    )
+                                    .user(
+                                        env::var("USER").unwrap_or_else(|_| "runner".to_string()),
+                                    ),
+                            ),
+                    )
+                    .install(Install::default().wanted_by(vec!["multi-user.target".to_string()]));
 
                 let manager = Systemd::new(cfg);
 
@@ -264,6 +288,13 @@ impl Cli {
                             "Failed to get service status. Please make sure the service is installed",
                         )?;
                         tracing::info!("Service '{}' status: {:?}", svc_name, status);
+                    }
+                    ServiceCommands::Logs {} => {
+                        tracing::debug!("Fetching service logs: {}", svc_name);
+                        let logs = manager.logs().into_diagnostic().wrap_err(
+                            "Failed to get service logs. Please make sure the service is installed",
+                        )?;
+                        tracing::info!("Service '{}' logs:\n{}", svc_name, logs);
                     }
                 }
                 Ok(())
