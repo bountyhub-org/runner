@@ -56,7 +56,9 @@ pub(crate) fn runner_name(ctx: &Ctx<Background>, default: &str) -> Result<String
                     break;
                 }
                 Ok(Err(e)) => {
-                    return Err(e).into_diagnostic().wrap_err("Failed to read from stdin");
+                    return Err(e)
+                        .into_diagnostic()
+                        .wrap_err("Failed to read from stdin");
                 }
                 Err(mpsc::RecvTimeoutError::Timeout) => {
                     // Continue checking context
@@ -129,7 +131,9 @@ pub(crate) fn runner_workdir(ctx: &Ctx<Background>, default: PathBuf) -> Result<
                     break;
                 }
                 Ok(Err(e)) => {
-                    return Err(e).into_diagnostic().wrap_err("Failed to read from stdin");
+                    return Err(e)
+                        .into_diagnostic()
+                        .wrap_err("Failed to read from stdin");
                 }
                 Err(mpsc::RecvTimeoutError::Timeout) => {
                     // Continue checking context
