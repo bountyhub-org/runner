@@ -16,5 +16,5 @@ uuid = { version = "^1", features = ["v4"] }
 url = "^2"
 serde = { version = "^1", features = ["derive"] }
 serde_json = { version = "^1", features = ["std"] }
-hostname = "0.4.0"
+hostname = "0.4.2"
 tracing = "^0.1"
