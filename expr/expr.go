@@ -2,6 +2,8 @@
 package expr
 
 import (
+	"fmt"
+
 	"github.com/bountyhub-org/runner/api/jobexecutionv1connect"
 	"github.com/google/cel-go/cel"
 	"github.com/google/cel-go/common/types/ref"
@@ -62,7 +64,7 @@ type jobData struct {
 	workflow *jobexecutionv1connect.Workflow
 	revision *jobexecutionv1connect.Revision
 	inputs   map[string]any
-	steps    []*StepContext
+	steps    []StepContext
 	scans    map[string]*jobexecutionv1connect.ArtifactsContext
 
 	ok bool
@@ -116,6 +118,15 @@ const (
 	StepStatusSkipped
 )
 
+func (s StepStatus) Validate() error {
+	switch s {
+	case StepStatusSucceeded, StepStatusFailed, StepStatusSkipped:
+		return nil
+	default:
+		return fmt.Errorf("invalid step status: %v", s)
+	}
+}
+
 type StepOutcome int
 
 const (
@@ -125,11 +136,46 @@ const (
 	StepOutcomeCancelled
 )
 
+func (o StepOutcome) Validate() error {
+	switch o {
+	case StepOutcomeSucceeded, StepOutcomeFailed, StepOutcomeCancelled:
+		return nil
+	default:
+		return fmt.Errorf("invalid step outcome: %v", o)
+	}
+}
+
 var _ ref.Type = (*StepContext)(nil)
 
 type StepContext struct {
 	Status  StepStatus
 	Outcome StepOutcome
+}
+
+func (s *StepContext) IsZero() bool {
+	return s.Status == 0 || s.Outcome == 0
+}
+
+func (s *StepContext) Validate() error {
+	if s.IsZero() {
+		return fmt.Errorf("step context is not done with status %v and outcome %v", s.Status, s.Outcome)
+	}
+
+	if err := s.Status.Validate(); err != nil {
+		return fmt.Errorf("invalid step status: %w", err)
+	}
+	if err := s.Outcome.Validate(); err != nil {
+		return fmt.Errorf("invalid step outcome: %w", err)
+	}
+
+	if s.Outcome == StepOutcomeCancelled && s.Status != StepStatusFailed {
+		return fmt.Errorf("step context has invalid state with status %v and outcome %v", s.Status, s.Outcome)
+	}
+	if s.Outcome == StepOutcomeFailed && s.Status != StepStatusFailed {
+		return fmt.Errorf("step context has invalid state with status %v and outcome %v", s.Status, s.Outcome)
+	}
+
+	return nil
 }
 
 // HasTrait implements [ref.Type].
@@ -143,11 +189,6 @@ func (s *StepContext) TypeName() string {
 }
 
 func NewEngine(jobContext *jobexecutionv1connect.ResolveJobResponse) *Engine {
-	steps := make([]*StepContext, 0, len(jobContext.Steps))
-	for range jobContext.Steps {
-		steps = append(steps, &StepContext{})
-	}
-
 	inputs := make(map[string]any)
 	for k, v := range jobContext.Inputs {
 		switch v := v.Value.(type) {
@@ -172,7 +213,7 @@ func NewEngine(jobContext *jobexecutionv1connect.ResolveJobResponse) *Engine {
 			workflow: jobContext.Workflow,
 			revision: jobContext.Revision,
 			inputs:   inputs,
-			steps:    steps,
+			steps:    make([]StepContext, len(jobContext.Steps)),
 			scans:    jobContext.ScanHistories,
 			ok:       true,
 		},
@@ -199,18 +240,28 @@ func (e *Engine) Eval(expr string) (ref.Val, error) {
 	return out, nil
 }
 
-func (e *Engine) UpdateStateFromStep(idx int, step *StepContext) {
+func (e *Engine) UpdateStateFromStep(idx int, nextContext StepContext) error {
 	if idx < 0 {
-		panic("index must be non-negative")
+		return fmt.Errorf("index cannot be negative")
 	}
 
 	if idx >= len(e.data.steps) {
-		panic("index out of bounds")
+		return fmt.Errorf("index %d out of bounds for steps with length %d", idx, len(e.data.steps))
 	}
 
-	e.data.steps[idx] = step
+	if err := nextContext.Validate(); err != nil {
+		return fmt.Errorf("invalid step context: %w", err)
+	}
 
-	if e.data.ok && step.Outcome != StepOutcomeSucceeded {
+	currentContext := e.data.steps[idx]
+	if !currentContext.IsZero() {
+		return fmt.Errorf("step %d is already done with state %v", idx, currentContext)
+	}
+	e.data.steps[idx] = nextContext
+
+	if e.data.ok && currentContext.Outcome != StepOutcomeSucceeded {
 		e.data.ok = false
 	}
+
+	return nil
 }

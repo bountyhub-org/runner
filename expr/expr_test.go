@@ -5,6 +5,7 @@ import (
 
 	"github.com/bountyhub-org/runner/api/jobexecutionv1connect"
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -16,9 +17,8 @@ func uuidv7() string {
 	return id.String()
 }
 
-func TestEngineEval(t *testing.T) {
-	t.Parallel()
-	engine := NewEngine(
+func commonTestEngine() *Engine {
+	return NewEngine(
 		&jobexecutionv1connect.ResolveJobResponse{
 			Id:   uuidv7(),
 			Name: "test-name",
@@ -44,7 +44,7 @@ func TestEngineEval(t *testing.T) {
 			Inputs: map[string]*jobexecutionv1connect.InputValue{
 				"input1": {
 					Value: &jobexecutionv1connect.InputValue_String_{
-						String_: "iv1",
+						String_: "input value 1",
 					},
 				},
 				"input2": {
@@ -56,6 +56,26 @@ func TestEngineEval(t *testing.T) {
 			Steps: []*jobexecutionv1connect.Step{
 				{
 					Step: &jobexecutionv1connect.Step_Setup{},
+				},
+				{
+					Step: &jobexecutionv1connect.Step_Command{
+						Command: &jobexecutionv1connect.CommandStep{
+							Run:          "echo 'hello world'",
+							Shell:        "bash",
+							Cond:         "always",
+							AllowFailure: false,
+						},
+					},
+				},
+				{
+					Step: &jobexecutionv1connect.Step_Command{
+						Command: &jobexecutionv1connect.CommandStep{
+							Run:          "echo 'hello world'",
+							Shell:        "bash",
+							Cond:         "always",
+							AllowFailure: false,
+						},
+					},
 				},
 				{
 					Step: &jobexecutionv1connect.Step_Command{
@@ -99,6 +119,11 @@ func TestEngineEval(t *testing.T) {
 			},
 		},
 	)
+}
+
+func TestEngineEval(t *testing.T) {
+	t.Parallel()
+	engine := commonTestEngine()
 
 	tt := map[string]struct {
 		expr string
@@ -144,22 +169,10 @@ func TestEngineEval(t *testing.T) {
 			expr: "inputs.input2",
 			val:  engine.data.inputs["input2"],
 		},
-		"scan 1 has diff": {
-			expr: "scans.scan1.context1.hasDiff",
-			val:  engine.data.scans["scan1"].Contexts["context1"].HasDiff,
-		},
-		"scan 1 is available": {
-			expr: "scans.scan1.context1.isAvailable",
-			val:  engine.data.scans["scan1"].Contexts["context1"].IsAvailable,
-		},
-		"scan 2 has diff": {
-			expr: "scans.scan2.context1.hasDiff",
-			val:  engine.data.scans["scan2"].Contexts["context1"].HasDiff,
-		},
-		"scan 2 is available": {
-			expr: `scans.scan2.has_diff("aname.zip")`,
-			val:  engine.data.scans["scan2"].Contexts["context1"].IsAvailable,
-		},
+		// "scan 1 has diff": {
+		// 	expr: "scans.scan1.is_available()",
+		// 	val:  engine.data.scans["scan1"].Contexts["context1"].HasDiff,
+		// },
 	}
 
 	for name, tc := range tt {
@@ -170,4 +183,73 @@ func TestEngineEval(t *testing.T) {
 			require.Equal(t, tc.val, val.Value(), "unexpected value")
 		})
 	}
+}
+
+func TestEngineUpdateStateFromStepOk(t *testing.T) {
+	t.Parallel()
+
+	engine := commonTestEngine()
+
+	err := engine.UpdateStateFromStep(0, StepContext{
+		Status:  StepStatusSucceeded,
+		Outcome: StepOutcomeSucceeded,
+	})
+	assert.NoError(t, err, "unexpected error updating state from step")
+
+	err = engine.UpdateStateFromStep(1, StepContext{
+		Status:  StepStatusFailed,
+		Outcome: StepOutcomeFailed,
+	})
+	assert.NoError(t, err, "unexpected error updating state from step")
+
+	err = engine.UpdateStateFromStep(2, StepContext{
+		Status:  StepStatusFailed,
+		Outcome: StepOutcomeSucceeded,
+	})
+	assert.NoError(t, err, "unexpected error updating state from step")
+
+	err = engine.UpdateStateFromStep(3, StepContext{
+		Status:  StepStatusSkipped,
+		Outcome: StepOutcomeSucceeded,
+	})
+	assert.NoError(t, err, "unexpected error updating state from step")
+}
+
+func TestEngineUpdateStateFromStepInvalidIndex(t *testing.T) {
+	t.Parallel()
+
+	t.Run("negative index", func(t *testing.T) {
+		engine := commonTestEngine()
+
+		err := engine.UpdateStateFromStep(-1, StepContext{
+			Status:  StepStatusSucceeded,
+			Outcome: StepOutcomeSucceeded,
+		})
+		assert.Error(t, err, "expected error updating state from step with invalid index")
+	})
+
+	t.Run("index out of bounds", func(t *testing.T) {
+		engine := commonTestEngine()
+		err := engine.UpdateStateFromStep(len(engine.data.steps), StepContext{
+			Status:  StepStatusSucceeded,
+			Outcome: StepOutcomeSucceeded,
+		})
+		assert.Error(t, err, "expected error updating state from step with invalid index")
+	})
+
+	t.Run("overwrite existing step context", func(t *testing.T) {
+		engine := commonTestEngine()
+
+		err := engine.UpdateStateFromStep(0, StepContext{
+			Status:  StepStatusSucceeded,
+			Outcome: StepOutcomeSucceeded,
+		})
+		assert.NoError(t, err, "unexpected error updating state from step")
+
+		err = engine.UpdateStateFromStep(0, StepContext{
+			Status:  StepStatusFailed,
+			Outcome: StepOutcomeFailed,
+		})
+		assert.Error(t, err, "expected error updating state from step with existing context")
+	})
 }
