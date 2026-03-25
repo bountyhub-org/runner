@@ -169,10 +169,18 @@ func TestEngineEval(t *testing.T) {
 			expr: "inputs.input2",
 			val:  engine.data.inputs["input2"],
 		},
-		// "scan 1 has diff": {
-		// 	expr: "scans.scan1.is_available()",
-		// 	val:  engine.data.scans["scan1"].Contexts["context1"].HasDiff,
-		// },
+		"scan artifact available": {
+			expr: "scans.scan1.is_available('context1')",
+			val:  engine.data.scans["scan1"].Contexts["context1"].IsAvailable,
+		},
+		"scan artifact unavailable": {
+			expr: "scans.scan1.is_available('context2')",
+			val:  engine.data.scans["scan1"].Contexts["context2"].IsAvailable,
+		},
+		"scan artifact missing": {
+			expr: "scans.scan1.is_available('missing')",
+			val:  false,
+		},
 	}
 
 	for name, tc := range tt {

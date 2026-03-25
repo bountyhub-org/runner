@@ -6,6 +6,7 @@ import (
 
 	"github.com/bountyhub-org/runner/api/jobexecutionv1connect"
 	"github.com/google/cel-go/cel"
+	"github.com/google/cel-go/common/types"
 	"github.com/google/cel-go/common/types/ref"
 	"github.com/google/cel-go/interpreter"
 )
@@ -16,12 +17,15 @@ func init() {
 	project := &jobexecutionv1connect.Project{}
 	workflow := &jobexecutionv1connect.Workflow{}
 	revision := &jobexecutionv1connect.Revision{}
+	artifactsContext := &jobexecutionv1connect.ArtifactsContext{}
 	stepContext := &StepContext{}
+	artifactsContextType := cel.ObjectType(string(artifactsContext.ProtoReflect().Descriptor().FullName()))
 	e, err := cel.NewEnv(
 		cel.Types(
 			project,
 			workflow,
 			revision,
+			artifactsContext,
 			stepContext,
 		),
 
@@ -36,10 +40,38 @@ func init() {
 		cel.Variable("revision", cel.ObjectType(string(revision.ProtoReflect().Descriptor().FullName()))),
 		cel.Variable("inputs", cel.MapType(cel.StringType, cel.DynType)),
 		cel.Variable("steps", cel.ListType(cel.ObjectType(stepContext.TypeName()))),
+		cel.Variable("scans", cel.MapType(cel.StringType, artifactsContextType)),
 
 		// Control variables
 		cel.Variable("ok", cel.BoolType),
 		cel.Variable("always", cel.BoolType),
+
+		cel.Function(
+			"is_available",
+			cel.MemberOverload(
+				"artifacts_context_is_available_string",
+				[]*cel.Type{artifactsContextType, cel.StringType},
+				cel.BoolType,
+				cel.BinaryBinding(func(lhs, rhs ref.Val) ref.Val {
+					scan, ok := lhs.Value().(*jobexecutionv1connect.ArtifactsContext)
+					if !ok {
+						return types.NewErr("no such overload")
+					}
+
+					artifactName, ok := rhs.Value().(string)
+					if !ok {
+						return types.NewErr("no such overload")
+					}
+
+					artifact, found := scan.GetContexts()[artifactName]
+					if !found || artifact == nil {
+						return types.Bool(false)
+					}
+
+					return types.Bool(artifact.GetIsAvailable())
+				}),
+			),
+		),
 	)
 	if err != nil {
 		panic(err)
