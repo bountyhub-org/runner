@@ -81,12 +81,12 @@ func init() {
 
 type Engine struct {
 	env  *cel.Env
-	data *jobData
+	data *data
 }
 
-var _ interpreter.Activation = (*jobData)(nil)
+var _ interpreter.Activation = (*data)(nil)
 
-type jobData struct {
+type data struct {
 	id       string
 	name     string
 	vars     map[string]string
@@ -103,12 +103,12 @@ type jobData struct {
 }
 
 // Parent implements [interpreter.Activation].
-func (j *jobData) Parent() interpreter.Activation {
+func (j *data) Parent() interpreter.Activation {
 	return nil
 }
 
 // ResolveName implements [interpreter.Activation].
-func (j *jobData) ResolveName(name string) (any, bool) {
+func (j *data) ResolveName(name string) (any, bool) {
 	switch name {
 	case "id":
 		return j.id, true
@@ -235,7 +235,7 @@ func NewEngine(jobContext *jobexecutionv1connect.ResolveJobResponse) *Engine {
 
 	return &Engine{
 		env: celEnv,
-		data: &jobData{
+		data: &data{
 			id:       jobContext.Id,
 			name:     jobContext.Name,
 			vars:     jobContext.Vars,
