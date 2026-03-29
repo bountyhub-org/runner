@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/bountyhub-org/runner/api/jobexecutionv1connect"
+	"github.com/bountyhub-org/runner/step"
 	"github.com/google/cel-go/cel"
 	"github.com/google/cel-go/common/types"
 	"github.com/google/cel-go/common/types/ref"
@@ -17,14 +18,21 @@ func init() {
 	project := &jobexecutionv1connect.Project{}
 	workflow := &jobexecutionv1connect.Workflow{}
 	revision := &jobexecutionv1connect.Revision{}
-	artifactsContext := &jobexecutionv1connect.ArtifactsContext{}
-	stepContext := &StepContext{}
+
+	artifactsContext := &jobexecutionv1connect.ArtifactMeta{}
 	artifactsContextType := cel.ObjectType(string(artifactsContext.ProtoReflect().Descriptor().FullName()))
+
+	scanMeta := &jobexecutionv1connect.ScanMeta{}
+	jobMeta := &jobexecutionv1connect.JobMeta{}
+	stepContext := &StepContext{}
+
 	e, err := cel.NewEnv(
 		cel.Types(
 			project,
 			workflow,
 			revision,
+			scanMeta,
+			jobMeta,
 			artifactsContext,
 			stepContext,
 		),
@@ -53,9 +61,13 @@ func init() {
 				[]*cel.Type{artifactsContextType, cel.StringType},
 				cel.BoolType,
 				cel.BinaryBinding(func(lhs, rhs ref.Val) ref.Val {
-					scan, ok := lhs.Value().(*jobexecutionv1connect.ArtifactsContext)
+					scan, ok := lhs.Value().(*jobexecutionv1connect.ScanMeta)
 					if !ok {
 						return types.NewErr("no such overload")
+					}
+
+					if len(scan.Jobs) == 0 {
+						return types.Bool(false)
 					}
 
 					artifactName, ok := rhs.Value().(string)
@@ -63,12 +75,10 @@ func init() {
 						return types.NewErr("no such overload")
 					}
 
-					artifact, found := scan.GetContexts()[artifactName]
-					if !found || artifact == nil {
-						return types.Bool(false)
-					}
+					job := scan.Jobs[0]
 
-					return types.Bool(artifact.GetIsAvailable())
+					artifact, ok := job.Artifacts[artifactName]
+					return types.Bool(ok && artifact.IsAvailable)
 				}),
 			),
 		),
@@ -97,7 +107,7 @@ type data struct {
 	revision *jobexecutionv1connect.Revision
 	inputs   map[string]any
 	steps    []StepContext
-	scans    map[string]*jobexecutionv1connect.ArtifactsContext
+	scans    map[string]*jobexecutionv1connect.ScanMeta
 
 	ok bool
 }
@@ -141,73 +151,18 @@ func (j *data) ResolveName(name string) (any, bool) {
 	}
 }
 
-type StepStatus int
-
-const (
-	_ StepStatus = iota
-	StepStatusSucceeded
-	StepStatusFailed
-	StepStatusSkipped
-)
-
-func (s StepStatus) Validate() error {
-	switch s {
-	case StepStatusSucceeded, StepStatusFailed, StepStatusSkipped:
-		return nil
-	default:
-		return fmt.Errorf("invalid step status: %v", s)
-	}
-}
-
-type StepOutcome int
-
-const (
-	_ StepOutcome = iota
-	StepOutcomeSucceeded
-	StepOutcomeFailed
-	StepOutcomeCancelled
-)
-
-func (o StepOutcome) Validate() error {
-	switch o {
-	case StepOutcomeSucceeded, StepOutcomeFailed, StepOutcomeCancelled:
-		return nil
-	default:
-		return fmt.Errorf("invalid step outcome: %v", o)
-	}
-}
-
 var _ ref.Type = (*StepContext)(nil)
 
 type StepContext struct {
-	Status  StepStatus
-	Outcome StepOutcome
+	result step.Result
 }
 
 func (s *StepContext) IsZero() bool {
-	return s.Status == 0 || s.Outcome == 0
+	return s.IsZero()
 }
 
 func (s *StepContext) Validate() error {
-	if s.IsZero() {
-		return fmt.Errorf("step context is not done with status %v and outcome %v", s.Status, s.Outcome)
-	}
-
-	if err := s.Status.Validate(); err != nil {
-		return fmt.Errorf("invalid step status: %w", err)
-	}
-	if err := s.Outcome.Validate(); err != nil {
-		return fmt.Errorf("invalid step outcome: %w", err)
-	}
-
-	if s.Outcome == StepOutcomeCancelled && s.Status != StepStatusFailed {
-		return fmt.Errorf("step context has invalid state with status %v and outcome %v", s.Status, s.Outcome)
-	}
-	if s.Outcome == StepOutcomeFailed && s.Status != StepStatusFailed {
-		return fmt.Errorf("step context has invalid state with status %v and outcome %v", s.Status, s.Outcome)
-	}
-
-	return nil
+	return s.result.Validate()
 }
 
 // HasTrait implements [ref.Type].
@@ -291,7 +246,7 @@ func (e *Engine) UpdateStateFromStep(idx int, nextContext StepContext) error {
 	}
 	e.data.steps[idx] = nextContext
 
-	if e.data.ok && currentContext.Outcome != StepOutcomeSucceeded {
+	if e.data.ok && currentContext.result.Outcome != step.OutcomeSucceeded {
 		e.data.ok = false
 	}
 

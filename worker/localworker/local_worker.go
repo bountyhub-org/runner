@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 
 	"connectrpc.com/connect"
 	"github.com/bountyhub-org/runner/api/jobexecutionv1connect"
 	"github.com/bountyhub-org/runner/expr"
+	"github.com/bountyhub-org/runner/step"
 	"github.com/bountyhub-org/runner/worker"
 )
 
@@ -58,5 +60,18 @@ func (c *LocalWorker) Work(ctx context.Context, assignedJob *jobexecutionv1conne
 
 	exprEngine := expr.NewEngine(res.Msg)
 
+	return nil
+}
+
+type setupStep struct {
+	baseDir string
+	step    *jobexecutionv1connect.Step
+	logger  *slog.Logger
+}
+
+func (s *setupStep) run(ctx context.Context) (step.Result, error) {
+	if err := os.MkdirAll(s.baseDir, 0o755); err != nil {
+		return step.ResultFailed(), fmt.Errorf("failed to create the base directory: %w", err)
+	}
 	return nil
 }
