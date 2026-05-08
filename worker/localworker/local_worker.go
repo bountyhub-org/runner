@@ -3,12 +3,12 @@ package localworker
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"os"
 
 	"connectrpc.com/connect"
 	"github.com/bountyhub-org/runner/api/jobexecutionv1connect"
 	"github.com/bountyhub-org/runner/expr"
+	"github.com/bountyhub-org/runner/joblogger"
 	"github.com/bountyhub-org/runner/step"
 	"github.com/bountyhub-org/runner/worker"
 )
@@ -19,9 +19,14 @@ type Client interface {
 	ResolveJob(context.Context, *connect.Request[jobexecutionv1connect.ResolveJobRequest]) (*connect.Response[jobexecutionv1connect.ResolveJobResponse], error)
 }
 
+type JobLogger interface {
+	Stdout(ctx context.Context, text string)
+	Stderr(ctx context.Context, text string)
+}
+
 type Config struct {
 	Client Client
-	Logger *slog.Logger
+	Logger JobLogger
 }
 
 func (c *Config) Validate() error {
@@ -37,12 +42,13 @@ func (c *Config) Validate() error {
 func New(cfg Config) (*LocalWorker, error) {
 	return &LocalWorker{
 		client: cfg.Client,
+		logger: cfg.Logger,
 	}, nil
 }
 
 type LocalWorker struct {
 	client Client
-	logger *slog.Logger
+	logger JobLogger
 }
 
 // Work implements [worker.Worker].
@@ -59,6 +65,7 @@ func (c *LocalWorker) Work(ctx context.Context, assignedJob *jobexecutionv1conne
 	}
 
 	exprEngine := expr.NewEngine(res.Msg)
+	_ = exprEngine
 
 	return nil
 }
@@ -66,12 +73,13 @@ func (c *LocalWorker) Work(ctx context.Context, assignedJob *jobexecutionv1conne
 type setupStep struct {
 	baseDir string
 	step    *jobexecutionv1connect.Step
-	logger  *slog.Logger
+	logger  *joblogger.JobLogger
 }
 
 func (s *setupStep) run(ctx context.Context) (step.Result, error) {
+	s.logger.Stderr(fmt.Sprintf("creating the base directory: %s", s.baseDir))
 	if err := os.MkdirAll(s.baseDir, 0o755); err != nil {
 		return step.ResultFailed(), fmt.Errorf("failed to create the base directory: %w", err)
 	}
-	return nil
+	return step.ResultSucceeded(step.StatusSucceeded), nil
 }
