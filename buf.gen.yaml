@@ -14,4 +14,11 @@ plugins:
       - package_suffix
 
 managed:
-  enabled: false
+  enabled: true
+  override:
+    - file_option: go_package
+      path: job_assignment_v1.proto
+      value: github.com/bountyhub-org/runner/api/jobassignmentv1connect
+    - file_option: go_package
+      path: job_execution_v1.proto
+      value: github.com/bountyhub-org/runner/api/jobexecutionv1connect

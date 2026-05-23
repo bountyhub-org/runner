@@ -32,9 +32,9 @@ const (
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
-	// JobExecutionServiceCreateExecutionProcedure is the fully-qualified name of the
-	// JobExecutionService's CreateExecution RPC.
-	JobExecutionServiceCreateExecutionProcedure = "/bountyhub.job.execution.v1.JobExecutionService/CreateExecution"
+	// JobExecutionServiceGetExecutionPlanProcedure is the fully-qualified name of the
+	// JobExecutionService's GetExecutionPlan RPC.
+	JobExecutionServiceGetExecutionPlanProcedure = "/bountyhub.job.execution.v1.JobExecutionService/GetExecutionPlan"
 	// JobExecutionServiceStreamEventsProcedure is the fully-qualified name of the JobExecutionService's
 	// StreamEvents RPC.
 	JobExecutionServiceStreamEventsProcedure = "/bountyhub.job.execution.v1.JobExecutionService/StreamEvents"
@@ -43,7 +43,7 @@ const (
 // JobExecutionServiceClient is a client for the bountyhub.job.execution.v1.JobExecutionService
 // service.
 type JobExecutionServiceClient interface {
-	CreateExecution(context.Context, *connect.Request[CreateExecutionRequest]) (*connect.Response[CreateExecutionResponse], error)
+	GetExecutionPlan(context.Context, *connect.Request[GetExecutionPlanRequest]) (*connect.Response[GetExecutionPlanRsponse], error)
 	StreamEvents(context.Context) *connect.ClientStreamForClient[StreamEventsRequest, StreamEventsResponse]
 }
 
@@ -59,10 +59,10 @@ func NewJobExecutionServiceClient(httpClient connect.HTTPClient, baseURL string,
 	baseURL = strings.TrimRight(baseURL, "/")
 	jobExecutionServiceMethods := File_job_execution_v1_proto.Services().ByName("JobExecutionService").Methods()
 	return &jobExecutionServiceClient{
-		createExecution: connect.NewClient[CreateExecutionRequest, CreateExecutionResponse](
+		getExecutionPlan: connect.NewClient[GetExecutionPlanRequest, GetExecutionPlanRsponse](
 			httpClient,
-			baseURL+JobExecutionServiceCreateExecutionProcedure,
-			connect.WithSchema(jobExecutionServiceMethods.ByName("CreateExecution")),
+			baseURL+JobExecutionServiceGetExecutionPlanProcedure,
+			connect.WithSchema(jobExecutionServiceMethods.ByName("GetExecutionPlan")),
 			connect.WithClientOptions(opts...),
 		),
 		streamEvents: connect.NewClient[StreamEventsRequest, StreamEventsResponse](
@@ -76,13 +76,13 @@ func NewJobExecutionServiceClient(httpClient connect.HTTPClient, baseURL string,
 
 // jobExecutionServiceClient implements JobExecutionServiceClient.
 type jobExecutionServiceClient struct {
-	createExecution *connect.Client[CreateExecutionRequest, CreateExecutionResponse]
-	streamEvents    *connect.Client[StreamEventsRequest, StreamEventsResponse]
+	getExecutionPlan *connect.Client[GetExecutionPlanRequest, GetExecutionPlanRsponse]
+	streamEvents     *connect.Client[StreamEventsRequest, StreamEventsResponse]
 }
 
-// CreateExecution calls bountyhub.job.execution.v1.JobExecutionService.CreateExecution.
-func (c *jobExecutionServiceClient) CreateExecution(ctx context.Context, req *connect.Request[CreateExecutionRequest]) (*connect.Response[CreateExecutionResponse], error) {
-	return c.createExecution.CallUnary(ctx, req)
+// GetExecutionPlan calls bountyhub.job.execution.v1.JobExecutionService.GetExecutionPlan.
+func (c *jobExecutionServiceClient) GetExecutionPlan(ctx context.Context, req *connect.Request[GetExecutionPlanRequest]) (*connect.Response[GetExecutionPlanRsponse], error) {
+	return c.getExecutionPlan.CallUnary(ctx, req)
 }
 
 // StreamEvents calls bountyhub.job.execution.v1.JobExecutionService.StreamEvents.
@@ -93,7 +93,7 @@ func (c *jobExecutionServiceClient) StreamEvents(ctx context.Context) *connect.C
 // JobExecutionServiceHandler is an implementation of the
 // bountyhub.job.execution.v1.JobExecutionService service.
 type JobExecutionServiceHandler interface {
-	CreateExecution(context.Context, *connect.Request[CreateExecutionRequest]) (*connect.Response[CreateExecutionResponse], error)
+	GetExecutionPlan(context.Context, *connect.Request[GetExecutionPlanRequest]) (*connect.Response[GetExecutionPlanRsponse], error)
 	StreamEvents(context.Context, *connect.ClientStream[StreamEventsRequest]) (*connect.Response[StreamEventsResponse], error)
 }
 
@@ -104,10 +104,10 @@ type JobExecutionServiceHandler interface {
 // and JSON codecs. They also support gzip compression.
 func NewJobExecutionServiceHandler(svc JobExecutionServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
 	jobExecutionServiceMethods := File_job_execution_v1_proto.Services().ByName("JobExecutionService").Methods()
-	jobExecutionServiceCreateExecutionHandler := connect.NewUnaryHandler(
-		JobExecutionServiceCreateExecutionProcedure,
-		svc.CreateExecution,
-		connect.WithSchema(jobExecutionServiceMethods.ByName("CreateExecution")),
+	jobExecutionServiceGetExecutionPlanHandler := connect.NewUnaryHandler(
+		JobExecutionServiceGetExecutionPlanProcedure,
+		svc.GetExecutionPlan,
+		connect.WithSchema(jobExecutionServiceMethods.ByName("GetExecutionPlan")),
 		connect.WithHandlerOptions(opts...),
 	)
 	jobExecutionServiceStreamEventsHandler := connect.NewClientStreamHandler(
@@ -118,8 +118,8 @@ func NewJobExecutionServiceHandler(svc JobExecutionServiceHandler, opts ...conne
 	)
 	return "/bountyhub.job.execution.v1.JobExecutionService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case JobExecutionServiceCreateExecutionProcedure:
-			jobExecutionServiceCreateExecutionHandler.ServeHTTP(w, r)
+		case JobExecutionServiceGetExecutionPlanProcedure:
+			jobExecutionServiceGetExecutionPlanHandler.ServeHTTP(w, r)
 		case JobExecutionServiceStreamEventsProcedure:
 			jobExecutionServiceStreamEventsHandler.ServeHTTP(w, r)
 		default:
@@ -131,8 +131,8 @@ func NewJobExecutionServiceHandler(svc JobExecutionServiceHandler, opts ...conne
 // UnimplementedJobExecutionServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedJobExecutionServiceHandler struct{}
 
-func (UnimplementedJobExecutionServiceHandler) CreateExecution(context.Context, *connect.Request[CreateExecutionRequest]) (*connect.Response[CreateExecutionResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("bountyhub.job.execution.v1.JobExecutionService.CreateExecution is not implemented"))
+func (UnimplementedJobExecutionServiceHandler) GetExecutionPlan(context.Context, *connect.Request[GetExecutionPlanRequest]) (*connect.Response[GetExecutionPlanRsponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("bountyhub.job.execution.v1.JobExecutionService.GetExecutionPlan is not implemented"))
 }
 
 func (UnimplementedJobExecutionServiceHandler) StreamEvents(context.Context, *connect.ClientStream[StreamEventsRequest]) (*connect.Response[StreamEventsResponse], error) {

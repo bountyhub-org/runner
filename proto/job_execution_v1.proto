@@ -5,14 +5,13 @@ package bountyhub.job.execution.v1;
 import "google/api/annotations.proto";
 import "google/protobuf/timestamp.proto";
 
-option go_package = "github.com/bountyhub-org/runner/api/jobexecutionv1connect";
 
 service JobExecutionService {
-  rpc CreateExecution(CreateExecutionRequest) returns (CreateExecutionResponse) {
-    option (google.api.http) = {post: "/v1/job-executions"};
+  rpc GetExecutionPlan(GetExecutionPlanRequest) returns (GetExecutionPlanRsponse) {
+    option (google.api.http) = {post: "/v1/jobs/{job_id}/execution/plan"};
   }
   rpc StreamEvents(stream StreamEventsRequest) returns (StreamEventsResponse) {
-    option (google.api.http) = {post: "/v1/job-executions/event"};
+    option (google.api.http) = {post: "/v1/jobs/{job_id}/execution/events"};
   }
 }
 
@@ -57,12 +56,12 @@ enum StepOutcome {
   STEP_OUTCOME_CANCELLED = 3;
 }
 
-message CreateExecutionRequest {
+message GetExecutionPlanRequest {
   string job_id = 1;
   string session = 2;
 }
 
-message CreateExecutionResponse {
+message GetExecutionPlanRsponse {
   string job_id = 1;
   string name = 2;
   Project project = 3;

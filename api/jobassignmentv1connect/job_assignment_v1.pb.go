@@ -10,7 +10,6 @@ import (
 	_ "google.golang.org/genproto/googleapis/api/annotations"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
-	_ "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -167,7 +166,7 @@ var File_job_assignment_v1_proto protoreflect.FileDescriptor
 
 const file_job_assignment_v1_proto_rawDesc = "" +
 	"\n" +
-	"\x17job_assignment_v1.proto\x12\x1bbountyhub.job.assignment.v1\x1a\x1cgoogle/api/annotations.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"0\n" +
+	"\x17job_assignment_v1.proto\x12\x1bbountyhub.job.assignment.v1\x1a\x1cgoogle/api/annotations.proto\"0\n" +
 	"\x12AcquireJobsRequest\x12\x1a\n" +
 	"\bcapacity\x18\x01 \x01(\rR\bcapacity\"c\n" +
 	"\x13AcquireJobsResponse\x12L\n" +
@@ -176,7 +175,8 @@ const file_job_assignment_v1_proto_rawDesc = "" +
 	"\x06job_id\x18\x02 \x01(\tR\x05jobId\x12\x18\n" +
 	"\asession\x18\x03 \x01(\tR\asession2\xb2\x01\n" +
 	"\x14JobAssignmentService\x12\x99\x01\n" +
-	"\vAcquireJobs\x12/.bountyhub.job.assignment.v1.AcquireJobsRequest\x1a0.bountyhub.job.assignment.v1.AcquireJobsResponse\"'\x82\xd3\xe4\x93\x02!:\x01*\"\x1c/v1/jobs/assignments/acquireB<Z:github.com/bountyhub-org/runner/api/jobassignmentv1connectb\x06proto3"
+	"\vAcquireJobs\x12/.bountyhub.job.assignment.v1.AcquireJobsRequest\x1a0.bountyhub.job.assignment.v1.AcquireJobsResponse\"'\x82\xd3\xe4\x93\x02!:\x01*\"\x1c/v1/jobs/assignments/acquireB\x82\x02\n" +
+	"\x1fcom.bountyhub.job.assignment.v1B\x14JobAssignmentV1ProtoP\x01Z:github.com/bountyhub-org/runner/api/jobassignmentv1connect\xa2\x02\x03BJA\xaa\x02\x1bBountyhub.Job.Assignment.V1\xca\x02\x1bBountyhub\\Job\\Assignment\\V1\xe2\x02'Bountyhub\\Job\\Assignment\\V1\\GPBMetadata\xea\x02\x1eBountyhub::Job::Assignment::V1b\x06proto3"
 
 var (
 	file_job_assignment_v1_proto_rawDescOnce sync.Once

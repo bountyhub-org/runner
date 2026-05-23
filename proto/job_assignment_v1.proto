@@ -3,9 +3,7 @@ syntax = "proto3";
 package bountyhub.job.assignment.v1;
 
 import "google/api/annotations.proto";
-import "google/protobuf/timestamp.proto";
 
-option go_package = "github.com/bountyhub-org/runner/api/jobassignmentv1connect";
 
 service JobAssignmentService {
   rpc AcquireJobs(AcquireJobsRequest) returns (AcquireJobsResponse) {
