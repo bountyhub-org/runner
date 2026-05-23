@@ -7,5 +7,5 @@ import (
 )
 
 type Worker interface {
-	Work(ctx context.Context, assignedJob *jobexecutionv1connect.AssignedJob) error
+	Work(ctx context.Context, job jobexecutionv1connect.CreateExecutionResponse) error
 }
