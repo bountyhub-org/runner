@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package bountyhub.job.assignment.v1;
+
+import "google/api/annotations.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/bountyhub-org/runner/api/jobassignmentv1connect";
+
+service JobAssignmentService {
+  rpc AcquireJobs(AcquireJobsRequest) returns (AcquireJobsResponse) {
+    option (google.api.http) = {
+      post: "/v1/jobs/assignments/acquire"
+      body: "*"
+    };
+  }
+}
+
+message AcquireJobsRequest {
+  uint32 capacity = 1;
+}
+
+message AcquireJobsResponse {
+  repeated JobAssignment assignments = 1;
+}
+
+message JobAssignment {
+  string job_id = 2;
+  string session = 3;
+}

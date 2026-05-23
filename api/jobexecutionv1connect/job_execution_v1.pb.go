@@ -2,7 +2,7 @@
 // versions:
 // 	protoc-gen-go v1.36.11
 // 	protoc        (unknown)
-// source: services/job_execution_v1.proto
+// source: job_execution_v1.proto
 
 package jobexecutionv1connect
 
@@ -10,6 +10,7 @@ import (
 	_ "google.golang.org/genproto/googleapis/api/annotations"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -22,14 +23,118 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type StepStatus int32
+
+const (
+	StepStatus_STEP_STATUS_UNSPECIFIED StepStatus = 0
+	StepStatus_STEP_STATUS_SUCCEEDED   StepStatus = 1
+	StepStatus_STEP_STATUS_FAILED      StepStatus = 2
+	StepStatus_STEP_STATUS_SKIPPED     StepStatus = 3
+)
+
+// Enum value maps for StepStatus.
+var (
+	StepStatus_name = map[int32]string{
+		0: "STEP_STATUS_UNSPECIFIED",
+		1: "STEP_STATUS_SUCCEEDED",
+		2: "STEP_STATUS_FAILED",
+		3: "STEP_STATUS_SKIPPED",
+	}
+	StepStatus_value = map[string]int32{
+		"STEP_STATUS_UNSPECIFIED": 0,
+		"STEP_STATUS_SUCCEEDED":   1,
+		"STEP_STATUS_FAILED":      2,
+		"STEP_STATUS_SKIPPED":     3,
+	}
+)
+
+func (x StepStatus) Enum() *StepStatus {
+	p := new(StepStatus)
+	*p = x
+	return p
+}
+
+func (x StepStatus) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (StepStatus) Descriptor() protoreflect.EnumDescriptor {
+	return file_job_execution_v1_proto_enumTypes[0].Descriptor()
+}
+
+func (StepStatus) Type() protoreflect.EnumType {
+	return &file_job_execution_v1_proto_enumTypes[0]
+}
+
+func (x StepStatus) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use StepStatus.Descriptor instead.
+func (StepStatus) EnumDescriptor() ([]byte, []int) {
+	return file_job_execution_v1_proto_rawDescGZIP(), []int{0}
+}
+
+type StepOutcome int32
+
+const (
+	StepOutcome_STEP_OUTCOME_UNSPECIFIED StepOutcome = 0
+	StepOutcome_STEP_OUTCOME_SUCCEEDED   StepOutcome = 1
+	StepOutcome_STEP_OUTCOME_FAILED      StepOutcome = 2
+	StepOutcome_STEP_OUTCOME_CANCELLED   StepOutcome = 3
+)
+
+// Enum value maps for StepOutcome.
+var (
+	StepOutcome_name = map[int32]string{
+		0: "STEP_OUTCOME_UNSPECIFIED",
+		1: "STEP_OUTCOME_SUCCEEDED",
+		2: "STEP_OUTCOME_FAILED",
+		3: "STEP_OUTCOME_CANCELLED",
+	}
+	StepOutcome_value = map[string]int32{
+		"STEP_OUTCOME_UNSPECIFIED": 0,
+		"STEP_OUTCOME_SUCCEEDED":   1,
+		"STEP_OUTCOME_FAILED":      2,
+		"STEP_OUTCOME_CANCELLED":   3,
+	}
+)
+
+func (x StepOutcome) Enum() *StepOutcome {
+	p := new(StepOutcome)
+	*p = x
+	return p
+}
+
+func (x StepOutcome) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (StepOutcome) Descriptor() protoreflect.EnumDescriptor {
+	return file_job_execution_v1_proto_enumTypes[1].Descriptor()
+}
+
+func (StepOutcome) Type() protoreflect.EnumType {
+	return &file_job_execution_v1_proto_enumTypes[1]
+}
+
+func (x StepOutcome) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use StepOutcome.Descriptor instead.
+func (StepOutcome) EnumDescriptor() ([]byte, []int) {
+	return file_job_execution_v1_proto_rawDescGZIP(), []int{1}
+}
+
 // Copy of bountyhub.job.v1.JobOutcome for use in JobExecutionService
 // without importing the entire job.proto
 type JobOutcome int32
 
 const (
 	JobOutcome_JOB_OUTCOME_UNSPECIFIED JobOutcome = 0
-	JobOutcome_JOB_OUTCOME_SUCCESS     JobOutcome = 1
-	JobOutcome_JOB_OUTCOME_FAILURE     JobOutcome = 2
+	JobOutcome_JOB_OUTCOME_SUCCEEDED   JobOutcome = 1
+	JobOutcome_JOB_OUTCOME_FAILED      JobOutcome = 2
 	JobOutcome_JOB_OUTCOME_CANCELLED   JobOutcome = 3
 )
 
@@ -37,14 +142,14 @@ const (
 var (
 	JobOutcome_name = map[int32]string{
 		0: "JOB_OUTCOME_UNSPECIFIED",
-		1: "JOB_OUTCOME_SUCCESS",
-		2: "JOB_OUTCOME_FAILURE",
+		1: "JOB_OUTCOME_SUCCEEDED",
+		2: "JOB_OUTCOME_FAILED",
 		3: "JOB_OUTCOME_CANCELLED",
 	}
 	JobOutcome_value = map[string]int32{
 		"JOB_OUTCOME_UNSPECIFIED": 0,
-		"JOB_OUTCOME_SUCCESS":     1,
-		"JOB_OUTCOME_FAILURE":     2,
+		"JOB_OUTCOME_SUCCEEDED":   1,
+		"JOB_OUTCOME_FAILED":      2,
 		"JOB_OUTCOME_CANCELLED":   3,
 	}
 )
@@ -60,11 +165,11 @@ func (x JobOutcome) String() string {
 }
 
 func (JobOutcome) Descriptor() protoreflect.EnumDescriptor {
-	return file_services_job_execution_v1_proto_enumTypes[0].Descriptor()
+	return file_job_execution_v1_proto_enumTypes[2].Descriptor()
 }
 
 func (JobOutcome) Type() protoreflect.EnumType {
-	return &file_services_job_execution_v1_proto_enumTypes[0]
+	return &file_job_execution_v1_proto_enumTypes[2]
 }
 
 func (x JobOutcome) Number() protoreflect.EnumNumber {
@@ -73,32 +178,35 @@ func (x JobOutcome) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use JobOutcome.Descriptor instead.
 func (JobOutcome) EnumDescriptor() ([]byte, []int) {
-	return file_services_job_execution_v1_proto_rawDescGZIP(), []int{0}
+	return file_job_execution_v1_proto_rawDescGZIP(), []int{2}
 }
 
-type RequestJobsRequest struct {
+type StreamEventsRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Capacity      uint64                 `protobuf:"varint,1,opt,name=capacity,proto3" json:"capacity,omitempty"`
+	JobId         string                 `protobuf:"bytes,1,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
 	Session       string                 `protobuf:"bytes,2,opt,name=session,proto3" json:"session,omitempty"`
+	Sequence      uint64                 `protobuf:"varint,3,opt,name=sequence,proto3" json:"sequence,omitempty"`
+	Timestamp     *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	Event         *JobEvent              `protobuf:"bytes,5,opt,name=event,proto3" json:"event,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *RequestJobsRequest) Reset() {
-	*x = RequestJobsRequest{}
-	mi := &file_services_job_execution_v1_proto_msgTypes[0]
+func (x *StreamEventsRequest) Reset() {
+	*x = StreamEventsRequest{}
+	mi := &file_job_execution_v1_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *RequestJobsRequest) String() string {
+func (x *StreamEventsRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*RequestJobsRequest) ProtoMessage() {}
+func (*StreamEventsRequest) ProtoMessage() {}
 
-func (x *RequestJobsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_services_job_execution_v1_proto_msgTypes[0]
+func (x *StreamEventsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_job_execution_v1_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -109,144 +217,67 @@ func (x *RequestJobsRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use RequestJobsRequest.ProtoReflect.Descriptor instead.
-func (*RequestJobsRequest) Descriptor() ([]byte, []int) {
-	return file_services_job_execution_v1_proto_rawDescGZIP(), []int{0}
+// Deprecated: Use StreamEventsRequest.ProtoReflect.Descriptor instead.
+func (*StreamEventsRequest) Descriptor() ([]byte, []int) {
+	return file_job_execution_v1_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *RequestJobsRequest) GetCapacity() uint64 {
+func (x *StreamEventsRequest) GetJobId() string {
 	if x != nil {
-		return x.Capacity
+		return x.JobId
+	}
+	return ""
+}
+
+func (x *StreamEventsRequest) GetSession() string {
+	if x != nil {
+		return x.Session
+	}
+	return ""
+}
+
+func (x *StreamEventsRequest) GetSequence() uint64 {
+	if x != nil {
+		return x.Sequence
 	}
 	return 0
 }
 
-func (x *RequestJobsRequest) GetSession() string {
+func (x *StreamEventsRequest) GetTimestamp() *timestamppb.Timestamp {
 	if x != nil {
-		return x.Session
-	}
-	return ""
-}
-
-type AssignedJob struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Session       string                 `protobuf:"bytes,2,opt,name=session,proto3" json:"session,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *AssignedJob) Reset() {
-	*x = AssignedJob{}
-	mi := &file_services_job_execution_v1_proto_msgTypes[1]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *AssignedJob) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*AssignedJob) ProtoMessage() {}
-
-func (x *AssignedJob) ProtoReflect() protoreflect.Message {
-	mi := &file_services_job_execution_v1_proto_msgTypes[1]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use AssignedJob.ProtoReflect.Descriptor instead.
-func (*AssignedJob) Descriptor() ([]byte, []int) {
-	return file_services_job_execution_v1_proto_rawDescGZIP(), []int{1}
-}
-
-func (x *AssignedJob) GetId() string {
-	if x != nil {
-		return x.Id
-	}
-	return ""
-}
-
-func (x *AssignedJob) GetSession() string {
-	if x != nil {
-		return x.Session
-	}
-	return ""
-}
-
-type RequestJobsResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Jobs          []*AssignedJob         `protobuf:"bytes,1,rep,name=jobs,proto3" json:"jobs,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *RequestJobsResponse) Reset() {
-	*x = RequestJobsResponse{}
-	mi := &file_services_job_execution_v1_proto_msgTypes[2]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *RequestJobsResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*RequestJobsResponse) ProtoMessage() {}
-
-func (x *RequestJobsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_services_job_execution_v1_proto_msgTypes[2]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use RequestJobsResponse.ProtoReflect.Descriptor instead.
-func (*RequestJobsResponse) Descriptor() ([]byte, []int) {
-	return file_services_job_execution_v1_proto_rawDescGZIP(), []int{2}
-}
-
-func (x *RequestJobsResponse) GetJobs() []*AssignedJob {
-	if x != nil {
-		return x.Jobs
+		return x.Timestamp
 	}
 	return nil
 }
 
-type ResolveJobRequest struct {
+func (x *StreamEventsRequest) GetEvent() *JobEvent {
+	if x != nil {
+		return x.Event
+	}
+	return nil
+}
+
+type StreamEventsResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Session       string                 `protobuf:"bytes,2,opt,name=session,proto3" json:"session,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *ResolveJobRequest) Reset() {
-	*x = ResolveJobRequest{}
-	mi := &file_services_job_execution_v1_proto_msgTypes[3]
+func (x *StreamEventsResponse) Reset() {
+	*x = StreamEventsResponse{}
+	mi := &file_job_execution_v1_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *ResolveJobRequest) String() string {
+func (x *StreamEventsResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*ResolveJobRequest) ProtoMessage() {}
+func (*StreamEventsResponse) ProtoMessage() {}
 
-func (x *ResolveJobRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_services_job_execution_v1_proto_msgTypes[3]
+func (x *StreamEventsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_job_execution_v1_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -257,28 +288,252 @@ func (x *ResolveJobRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use ResolveJobRequest.ProtoReflect.Descriptor instead.
-func (*ResolveJobRequest) Descriptor() ([]byte, []int) {
-	return file_services_job_execution_v1_proto_rawDescGZIP(), []int{3}
+// Deprecated: Use StreamEventsResponse.ProtoReflect.Descriptor instead.
+func (*StreamEventsResponse) Descriptor() ([]byte, []int) {
+	return file_job_execution_v1_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *ResolveJobRequest) GetId() string {
+type JobEvent struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Event:
+	//
+	//	*JobEvent_Started
+	//	*JobEvent_Finished
+	Event         isJobEvent_Event `protobuf_oneof:"event"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *JobEvent) Reset() {
+	*x = JobEvent{}
+	mi := &file_job_execution_v1_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *JobEvent) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*JobEvent) ProtoMessage() {}
+
+func (x *JobEvent) ProtoReflect() protoreflect.Message {
+	mi := &file_job_execution_v1_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use JobEvent.ProtoReflect.Descriptor instead.
+func (*JobEvent) Descriptor() ([]byte, []int) {
+	return file_job_execution_v1_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *JobEvent) GetEvent() isJobEvent_Event {
+	if x != nil {
+		return x.Event
+	}
+	return nil
+}
+
+func (x *JobEvent) GetStarted() *StepStarted {
+	if x != nil {
+		if x, ok := x.Event.(*JobEvent_Started); ok {
+			return x.Started
+		}
+	}
+	return nil
+}
+
+func (x *JobEvent) GetFinished() *StepFinished {
+	if x != nil {
+		if x, ok := x.Event.(*JobEvent_Finished); ok {
+			return x.Finished
+		}
+	}
+	return nil
+}
+
+type isJobEvent_Event interface {
+	isJobEvent_Event()
+}
+
+type JobEvent_Started struct {
+	Started *StepStarted `protobuf:"bytes,1,opt,name=started,proto3,oneof"`
+}
+
+type JobEvent_Finished struct {
+	Finished *StepFinished `protobuf:"bytes,2,opt,name=finished,proto3,oneof"`
+}
+
+func (*JobEvent_Started) isJobEvent_Event() {}
+
+func (*JobEvent_Finished) isJobEvent_Event() {}
+
+type StepStarted struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StepStarted) Reset() {
+	*x = StepStarted{}
+	mi := &file_job_execution_v1_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StepStarted) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StepStarted) ProtoMessage() {}
+
+func (x *StepStarted) ProtoReflect() protoreflect.Message {
+	mi := &file_job_execution_v1_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StepStarted.ProtoReflect.Descriptor instead.
+func (*StepStarted) Descriptor() ([]byte, []int) {
+	return file_job_execution_v1_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *StepStarted) GetId() string {
 	if x != nil {
 		return x.Id
 	}
 	return ""
 }
 
-func (x *ResolveJobRequest) GetSession() string {
+type StepFinished struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Status        StepStatus             `protobuf:"varint,3,opt,name=status,proto3,enum=bountyhub.job.execution.v1.StepStatus" json:"status,omitempty"`
+	Outcome       StepOutcome            `protobuf:"varint,4,opt,name=outcome,proto3,enum=bountyhub.job.execution.v1.StepOutcome" json:"outcome,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StepFinished) Reset() {
+	*x = StepFinished{}
+	mi := &file_job_execution_v1_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StepFinished) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StepFinished) ProtoMessage() {}
+
+func (x *StepFinished) ProtoReflect() protoreflect.Message {
+	mi := &file_job_execution_v1_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StepFinished.ProtoReflect.Descriptor instead.
+func (*StepFinished) Descriptor() ([]byte, []int) {
+	return file_job_execution_v1_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *StepFinished) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *StepFinished) GetStatus() StepStatus {
+	if x != nil {
+		return x.Status
+	}
+	return StepStatus_STEP_STATUS_UNSPECIFIED
+}
+
+func (x *StepFinished) GetOutcome() StepOutcome {
+	if x != nil {
+		return x.Outcome
+	}
+	return StepOutcome_STEP_OUTCOME_UNSPECIFIED
+}
+
+type CreateExecutionRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	JobId         string                 `protobuf:"bytes,1,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
+	Session       string                 `protobuf:"bytes,2,opt,name=session,proto3" json:"session,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateExecutionRequest) Reset() {
+	*x = CreateExecutionRequest{}
+	mi := &file_job_execution_v1_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateExecutionRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateExecutionRequest) ProtoMessage() {}
+
+func (x *CreateExecutionRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_job_execution_v1_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateExecutionRequest.ProtoReflect.Descriptor instead.
+func (*CreateExecutionRequest) Descriptor() ([]byte, []int) {
+	return file_job_execution_v1_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *CreateExecutionRequest) GetJobId() string {
+	if x != nil {
+		return x.JobId
+	}
+	return ""
+}
+
+func (x *CreateExecutionRequest) GetSession() string {
 	if x != nil {
 		return x.Session
 	}
 	return ""
 }
 
-type ResolveJobResponse struct {
+type CreateExecutionResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	JobId         string                 `protobuf:"bytes,1,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
 	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
 	Project       *Project               `protobuf:"bytes,3,opt,name=project,proto3" json:"project,omitempty"`
 	Workflow      *Workflow              `protobuf:"bytes,4,opt,name=workflow,proto3" json:"workflow,omitempty"`
@@ -293,21 +548,21 @@ type ResolveJobResponse struct {
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *ResolveJobResponse) Reset() {
-	*x = ResolveJobResponse{}
-	mi := &file_services_job_execution_v1_proto_msgTypes[4]
+func (x *CreateExecutionResponse) Reset() {
+	*x = CreateExecutionResponse{}
+	mi := &file_job_execution_v1_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *ResolveJobResponse) String() string {
+func (x *CreateExecutionResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*ResolveJobResponse) ProtoMessage() {}
+func (*CreateExecutionResponse) ProtoMessage() {}
 
-func (x *ResolveJobResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_services_job_execution_v1_proto_msgTypes[4]
+func (x *CreateExecutionResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_job_execution_v1_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -318,82 +573,82 @@ func (x *ResolveJobResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use ResolveJobResponse.ProtoReflect.Descriptor instead.
-func (*ResolveJobResponse) Descriptor() ([]byte, []int) {
-	return file_services_job_execution_v1_proto_rawDescGZIP(), []int{4}
+// Deprecated: Use CreateExecutionResponse.ProtoReflect.Descriptor instead.
+func (*CreateExecutionResponse) Descriptor() ([]byte, []int) {
+	return file_job_execution_v1_proto_rawDescGZIP(), []int{6}
 }
 
-func (x *ResolveJobResponse) GetId() string {
+func (x *CreateExecutionResponse) GetJobId() string {
 	if x != nil {
-		return x.Id
+		return x.JobId
 	}
 	return ""
 }
 
-func (x *ResolveJobResponse) GetName() string {
+func (x *CreateExecutionResponse) GetName() string {
 	if x != nil {
 		return x.Name
 	}
 	return ""
 }
 
-func (x *ResolveJobResponse) GetProject() *Project {
+func (x *CreateExecutionResponse) GetProject() *Project {
 	if x != nil {
 		return x.Project
 	}
 	return nil
 }
 
-func (x *ResolveJobResponse) GetWorkflow() *Workflow {
+func (x *CreateExecutionResponse) GetWorkflow() *Workflow {
 	if x != nil {
 		return x.Workflow
 	}
 	return nil
 }
 
-func (x *ResolveJobResponse) GetRevision() *Revision {
+func (x *CreateExecutionResponse) GetRevision() *Revision {
 	if x != nil {
 		return x.Revision
 	}
 	return nil
 }
 
-func (x *ResolveJobResponse) GetVars() map[string]string {
+func (x *CreateExecutionResponse) GetVars() map[string]string {
 	if x != nil {
 		return x.Vars
 	}
 	return nil
 }
 
-func (x *ResolveJobResponse) GetSecrets() map[string]string {
+func (x *CreateExecutionResponse) GetSecrets() map[string]string {
 	if x != nil {
 		return x.Secrets
 	}
 	return nil
 }
 
-func (x *ResolveJobResponse) GetEnv() map[string]string {
+func (x *CreateExecutionResponse) GetEnv() map[string]string {
 	if x != nil {
 		return x.Env
 	}
 	return nil
 }
 
-func (x *ResolveJobResponse) GetInputs() map[string]*InputValue {
+func (x *CreateExecutionResponse) GetInputs() map[string]*InputValue {
 	if x != nil {
 		return x.Inputs
 	}
 	return nil
 }
 
-func (x *ResolveJobResponse) GetSteps() []*Step {
+func (x *CreateExecutionResponse) GetSteps() []*Step {
 	if x != nil {
 		return x.Steps
 	}
 	return nil
 }
 
-func (x *ResolveJobResponse) GetScanHistories() map[string]*ScanMeta {
+func (x *CreateExecutionResponse) GetScanHistories() map[string]*ScanMeta {
 	if x != nil {
 		return x.ScanHistories
 	}
@@ -409,7 +664,7 @@ type Project struct {
 
 func (x *Project) Reset() {
 	*x = Project{}
-	mi := &file_services_job_execution_v1_proto_msgTypes[5]
+	mi := &file_job_execution_v1_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -421,7 +676,7 @@ func (x *Project) String() string {
 func (*Project) ProtoMessage() {}
 
 func (x *Project) ProtoReflect() protoreflect.Message {
-	mi := &file_services_job_execution_v1_proto_msgTypes[5]
+	mi := &file_job_execution_v1_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -434,7 +689,7 @@ func (x *Project) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Project.ProtoReflect.Descriptor instead.
 func (*Project) Descriptor() ([]byte, []int) {
-	return file_services_job_execution_v1_proto_rawDescGZIP(), []int{5}
+	return file_job_execution_v1_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *Project) GetId() string {
@@ -453,7 +708,7 @@ type Workflow struct {
 
 func (x *Workflow) Reset() {
 	*x = Workflow{}
-	mi := &file_services_job_execution_v1_proto_msgTypes[6]
+	mi := &file_job_execution_v1_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -465,7 +720,7 @@ func (x *Workflow) String() string {
 func (*Workflow) ProtoMessage() {}
 
 func (x *Workflow) ProtoReflect() protoreflect.Message {
-	mi := &file_services_job_execution_v1_proto_msgTypes[6]
+	mi := &file_job_execution_v1_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -478,7 +733,7 @@ func (x *Workflow) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Workflow.ProtoReflect.Descriptor instead.
 func (*Workflow) Descriptor() ([]byte, []int) {
-	return file_services_job_execution_v1_proto_rawDescGZIP(), []int{6}
+	return file_job_execution_v1_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *Workflow) GetId() string {
@@ -497,7 +752,7 @@ type Revision struct {
 
 func (x *Revision) Reset() {
 	*x = Revision{}
-	mi := &file_services_job_execution_v1_proto_msgTypes[7]
+	mi := &file_job_execution_v1_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -509,7 +764,7 @@ func (x *Revision) String() string {
 func (*Revision) ProtoMessage() {}
 
 func (x *Revision) ProtoReflect() protoreflect.Message {
-	mi := &file_services_job_execution_v1_proto_msgTypes[7]
+	mi := &file_job_execution_v1_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -522,7 +777,7 @@ func (x *Revision) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Revision.ProtoReflect.Descriptor instead.
 func (*Revision) Descriptor() ([]byte, []int) {
-	return file_services_job_execution_v1_proto_rawDescGZIP(), []int{7}
+	return file_job_execution_v1_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *Revision) GetId() string {
@@ -547,7 +802,7 @@ type Step struct {
 
 func (x *Step) Reset() {
 	*x = Step{}
-	mi := &file_services_job_execution_v1_proto_msgTypes[8]
+	mi := &file_job_execution_v1_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -559,7 +814,7 @@ func (x *Step) String() string {
 func (*Step) ProtoMessage() {}
 
 func (x *Step) ProtoReflect() protoreflect.Message {
-	mi := &file_services_job_execution_v1_proto_msgTypes[8]
+	mi := &file_job_execution_v1_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -572,7 +827,7 @@ func (x *Step) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Step.ProtoReflect.Descriptor instead.
 func (*Step) Descriptor() ([]byte, []int) {
-	return file_services_job_execution_v1_proto_rawDescGZIP(), []int{8}
+	return file_job_execution_v1_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *Step) GetStep() isStep_Step {
@@ -654,7 +909,7 @@ type SetupStep struct {
 
 func (x *SetupStep) Reset() {
 	*x = SetupStep{}
-	mi := &file_services_job_execution_v1_proto_msgTypes[9]
+	mi := &file_job_execution_v1_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -666,7 +921,7 @@ func (x *SetupStep) String() string {
 func (*SetupStep) ProtoMessage() {}
 
 func (x *SetupStep) ProtoReflect() protoreflect.Message {
-	mi := &file_services_job_execution_v1_proto_msgTypes[9]
+	mi := &file_job_execution_v1_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -679,7 +934,7 @@ func (x *SetupStep) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetupStep.ProtoReflect.Descriptor instead.
 func (*SetupStep) Descriptor() ([]byte, []int) {
-	return file_services_job_execution_v1_proto_rawDescGZIP(), []int{9}
+	return file_job_execution_v1_proto_rawDescGZIP(), []int{11}
 }
 
 type CommandStep struct {
@@ -694,7 +949,7 @@ type CommandStep struct {
 
 func (x *CommandStep) Reset() {
 	*x = CommandStep{}
-	mi := &file_services_job_execution_v1_proto_msgTypes[10]
+	mi := &file_job_execution_v1_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -706,7 +961,7 @@ func (x *CommandStep) String() string {
 func (*CommandStep) ProtoMessage() {}
 
 func (x *CommandStep) ProtoReflect() protoreflect.Message {
-	mi := &file_services_job_execution_v1_proto_msgTypes[10]
+	mi := &file_job_execution_v1_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -719,7 +974,7 @@ func (x *CommandStep) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CommandStep.ProtoReflect.Descriptor instead.
 func (*CommandStep) Descriptor() ([]byte, []int) {
-	return file_services_job_execution_v1_proto_rawDescGZIP(), []int{10}
+	return file_job_execution_v1_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *CommandStep) GetRun() string {
@@ -759,7 +1014,7 @@ type ArtifactSteps struct {
 
 func (x *ArtifactSteps) Reset() {
 	*x = ArtifactSteps{}
-	mi := &file_services_job_execution_v1_proto_msgTypes[11]
+	mi := &file_job_execution_v1_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -771,7 +1026,7 @@ func (x *ArtifactSteps) String() string {
 func (*ArtifactSteps) ProtoMessage() {}
 
 func (x *ArtifactSteps) ProtoReflect() protoreflect.Message {
-	mi := &file_services_job_execution_v1_proto_msgTypes[11]
+	mi := &file_job_execution_v1_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -784,7 +1039,7 @@ func (x *ArtifactSteps) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ArtifactSteps.ProtoReflect.Descriptor instead.
 func (*ArtifactSteps) Descriptor() ([]byte, []int) {
-	return file_services_job_execution_v1_proto_rawDescGZIP(), []int{11}
+	return file_job_execution_v1_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *ArtifactSteps) GetArtifacts() []*ArtifactStep {
@@ -805,7 +1060,7 @@ type ArtifactStep struct {
 
 func (x *ArtifactStep) Reset() {
 	*x = ArtifactStep{}
-	mi := &file_services_job_execution_v1_proto_msgTypes[12]
+	mi := &file_job_execution_v1_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -817,7 +1072,7 @@ func (x *ArtifactStep) String() string {
 func (*ArtifactStep) ProtoMessage() {}
 
 func (x *ArtifactStep) ProtoReflect() protoreflect.Message {
-	mi := &file_services_job_execution_v1_proto_msgTypes[12]
+	mi := &file_job_execution_v1_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -830,7 +1085,7 @@ func (x *ArtifactStep) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ArtifactStep.ProtoReflect.Descriptor instead.
 func (*ArtifactStep) Descriptor() ([]byte, []int) {
-	return file_services_job_execution_v1_proto_rawDescGZIP(), []int{12}
+	return file_job_execution_v1_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *ArtifactStep) GetName() string {
@@ -862,7 +1117,7 @@ type TeardownStep struct {
 
 func (x *TeardownStep) Reset() {
 	*x = TeardownStep{}
-	mi := &file_services_job_execution_v1_proto_msgTypes[13]
+	mi := &file_job_execution_v1_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -874,7 +1129,7 @@ func (x *TeardownStep) String() string {
 func (*TeardownStep) ProtoMessage() {}
 
 func (x *TeardownStep) ProtoReflect() protoreflect.Message {
-	mi := &file_services_job_execution_v1_proto_msgTypes[13]
+	mi := &file_job_execution_v1_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -887,15 +1142,15 @@ func (x *TeardownStep) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TeardownStep.ProtoReflect.Descriptor instead.
 func (*TeardownStep) Descriptor() ([]byte, []int) {
-	return file_services_job_execution_v1_proto_rawDescGZIP(), []int{13}
+	return file_job_execution_v1_proto_rawDescGZIP(), []int{15}
 }
 
 type InputValue struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Types that are valid to be assigned to Value:
 	//
-	//	*InputValue_String_
-	//	*InputValue_Bool
+	//	*InputValue_StringValue
+	//	*InputValue_BoolValue
 	Value         isInputValue_Value `protobuf_oneof:"value"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -903,7 +1158,7 @@ type InputValue struct {
 
 func (x *InputValue) Reset() {
 	*x = InputValue{}
-	mi := &file_services_job_execution_v1_proto_msgTypes[14]
+	mi := &file_job_execution_v1_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -915,7 +1170,7 @@ func (x *InputValue) String() string {
 func (*InputValue) ProtoMessage() {}
 
 func (x *InputValue) ProtoReflect() protoreflect.Message {
-	mi := &file_services_job_execution_v1_proto_msgTypes[14]
+	mi := &file_job_execution_v1_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -928,7 +1183,7 @@ func (x *InputValue) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InputValue.ProtoReflect.Descriptor instead.
 func (*InputValue) Descriptor() ([]byte, []int) {
-	return file_services_job_execution_v1_proto_rawDescGZIP(), []int{14}
+	return file_job_execution_v1_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *InputValue) GetValue() isInputValue_Value {
@@ -938,19 +1193,19 @@ func (x *InputValue) GetValue() isInputValue_Value {
 	return nil
 }
 
-func (x *InputValue) GetString_() string {
+func (x *InputValue) GetStringValue() string {
 	if x != nil {
-		if x, ok := x.Value.(*InputValue_String_); ok {
-			return x.String_
+		if x, ok := x.Value.(*InputValue_StringValue); ok {
+			return x.StringValue
 		}
 	}
 	return ""
 }
 
-func (x *InputValue) GetBool() bool {
+func (x *InputValue) GetBoolValue() bool {
 	if x != nil {
-		if x, ok := x.Value.(*InputValue_Bool); ok {
-			return x.Bool
+		if x, ok := x.Value.(*InputValue_BoolValue); ok {
+			return x.BoolValue
 		}
 	}
 	return false
@@ -960,17 +1215,17 @@ type isInputValue_Value interface {
 	isInputValue_Value()
 }
 
-type InputValue_String_ struct {
-	String_ string `protobuf:"bytes,1,opt,name=string,proto3,oneof"`
+type InputValue_StringValue struct {
+	StringValue string `protobuf:"bytes,1,opt,name=string_value,json=stringValue,proto3,oneof"`
 }
 
-type InputValue_Bool struct {
-	Bool bool `protobuf:"varint,2,opt,name=bool,proto3,oneof"`
+type InputValue_BoolValue struct {
+	BoolValue bool `protobuf:"varint,2,opt,name=bool_value,json=boolValue,proto3,oneof"`
 }
 
-func (*InputValue_String_) isInputValue_Value() {}
+func (*InputValue_StringValue) isInputValue_Value() {}
 
-func (*InputValue_Bool) isInputValue_Value() {}
+func (*InputValue_BoolValue) isInputValue_Value() {}
 
 type ScanMeta struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -981,7 +1236,7 @@ type ScanMeta struct {
 
 func (x *ScanMeta) Reset() {
 	*x = ScanMeta{}
-	mi := &file_services_job_execution_v1_proto_msgTypes[15]
+	mi := &file_job_execution_v1_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -993,7 +1248,7 @@ func (x *ScanMeta) String() string {
 func (*ScanMeta) ProtoMessage() {}
 
 func (x *ScanMeta) ProtoReflect() protoreflect.Message {
-	mi := &file_services_job_execution_v1_proto_msgTypes[15]
+	mi := &file_job_execution_v1_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1006,7 +1261,7 @@ func (x *ScanMeta) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ScanMeta.ProtoReflect.Descriptor instead.
 func (*ScanMeta) Descriptor() ([]byte, []int) {
-	return file_services_job_execution_v1_proto_rawDescGZIP(), []int{15}
+	return file_job_execution_v1_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *ScanMeta) GetJobs() []*JobMeta {
@@ -1027,7 +1282,7 @@ type JobMeta struct {
 
 func (x *JobMeta) Reset() {
 	*x = JobMeta{}
-	mi := &file_services_job_execution_v1_proto_msgTypes[16]
+	mi := &file_job_execution_v1_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1039,7 +1294,7 @@ func (x *JobMeta) String() string {
 func (*JobMeta) ProtoMessage() {}
 
 func (x *JobMeta) ProtoReflect() protoreflect.Message {
-	mi := &file_services_job_execution_v1_proto_msgTypes[16]
+	mi := &file_job_execution_v1_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1052,7 +1307,7 @@ func (x *JobMeta) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use JobMeta.ProtoReflect.Descriptor instead.
 func (*JobMeta) Descriptor() ([]byte, []int) {
-	return file_services_job_execution_v1_proto_rawDescGZIP(), []int{16}
+	return file_job_execution_v1_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *JobMeta) GetId() string {
@@ -1086,7 +1341,7 @@ type ArtifactMeta struct {
 
 func (x *ArtifactMeta) Reset() {
 	*x = ArtifactMeta{}
-	mi := &file_services_job_execution_v1_proto_msgTypes[17]
+	mi := &file_job_execution_v1_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1098,7 +1353,7 @@ func (x *ArtifactMeta) String() string {
 func (*ArtifactMeta) ProtoMessage() {}
 
 func (x *ArtifactMeta) ProtoReflect() protoreflect.Message {
-	mi := &file_services_job_execution_v1_proto_msgTypes[17]
+	mi := &file_job_execution_v1_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1111,7 +1366,7 @@ func (x *ArtifactMeta) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ArtifactMeta.ProtoReflect.Descriptor instead.
 func (*ArtifactMeta) Descriptor() ([]byte, []int) {
-	return file_services_job_execution_v1_proto_rawDescGZIP(), []int{17}
+	return file_job_execution_v1_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *ArtifactMeta) GetHasDiff() bool {
@@ -1128,35 +1383,44 @@ func (x *ArtifactMeta) GetIsAvailable() bool {
 	return false
 }
 
-var File_services_job_execution_v1_proto protoreflect.FileDescriptor
+var File_job_execution_v1_proto protoreflect.FileDescriptor
 
-const file_services_job_execution_v1_proto_rawDesc = "" +
+const file_job_execution_v1_proto_rawDesc = "" +
 	"\n" +
-	"\x1fservices/job_execution_v1.proto\x12\x1abountyhub.job.execution.v1\x1a\x1cgoogle/api/annotations.proto\"J\n" +
-	"\x12RequestJobsRequest\x12\x1a\n" +
-	"\bcapacity\x18\x01 \x01(\x04R\bcapacity\x12\x18\n" +
-	"\asession\x18\x02 \x01(\tR\asession\"7\n" +
-	"\vAssignedJob\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\x12\x18\n" +
-	"\asession\x18\x02 \x01(\tR\asession\"R\n" +
-	"\x13RequestJobsResponse\x12;\n" +
-	"\x04jobs\x18\x01 \x03(\v2'.bountyhub.job.execution.v1.AssignedJobR\x04jobs\"=\n" +
-	"\x11ResolveJobRequest\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\x12\x18\n" +
-	"\asession\x18\x02 \x01(\tR\asession\"\xd9\b\n" +
-	"\x12ResolveJobResponse\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
+	"\x16job_execution_v1.proto\x12\x1abountyhub.job.execution.v1\x1a\x1cgoogle/api/annotations.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xd8\x01\n" +
+	"\x13StreamEventsRequest\x12\x15\n" +
+	"\x06job_id\x18\x01 \x01(\tR\x05jobId\x12\x18\n" +
+	"\asession\x18\x02 \x01(\tR\asession\x12\x1a\n" +
+	"\bsequence\x18\x03 \x01(\x04R\bsequence\x128\n" +
+	"\ttimestamp\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\ttimestamp\x12:\n" +
+	"\x05event\x18\x05 \x01(\v2$.bountyhub.job.execution.v1.JobEventR\x05event\"\x16\n" +
+	"\x14StreamEventsResponse\"\xa0\x01\n" +
+	"\bJobEvent\x12C\n" +
+	"\astarted\x18\x01 \x01(\v2'.bountyhub.job.execution.v1.StepStartedH\x00R\astarted\x12F\n" +
+	"\bfinished\x18\x02 \x01(\v2(.bountyhub.job.execution.v1.StepFinishedH\x00R\bfinishedB\a\n" +
+	"\x05event\"\x1d\n" +
+	"\vStepStarted\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"\xa1\x01\n" +
+	"\fStepFinished\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12>\n" +
+	"\x06status\x18\x03 \x01(\x0e2&.bountyhub.job.execution.v1.StepStatusR\x06status\x12A\n" +
+	"\aoutcome\x18\x04 \x01(\x0e2'.bountyhub.job.execution.v1.StepOutcomeR\aoutcome\"I\n" +
+	"\x16CreateExecutionRequest\x12\x15\n" +
+	"\x06job_id\x18\x01 \x01(\tR\x05jobId\x12\x18\n" +
+	"\asession\x18\x02 \x01(\tR\asession\"\xfe\b\n" +
+	"\x17CreateExecutionResponse\x12\x15\n" +
+	"\x06job_id\x18\x01 \x01(\tR\x05jobId\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12=\n" +
 	"\aproject\x18\x03 \x01(\v2#.bountyhub.job.execution.v1.ProjectR\aproject\x12@\n" +
 	"\bworkflow\x18\x04 \x01(\v2$.bountyhub.job.execution.v1.WorkflowR\bworkflow\x12@\n" +
-	"\brevision\x18\x05 \x01(\v2$.bountyhub.job.execution.v1.RevisionR\brevision\x12L\n" +
-	"\x04vars\x18\x06 \x03(\v28.bountyhub.job.execution.v1.ResolveJobResponse.VarsEntryR\x04vars\x12U\n" +
-	"\asecrets\x18\a \x03(\v2;.bountyhub.job.execution.v1.ResolveJobResponse.SecretsEntryR\asecrets\x12I\n" +
-	"\x03env\x18\b \x03(\v27.bountyhub.job.execution.v1.ResolveJobResponse.EnvEntryR\x03env\x12R\n" +
-	"\x06inputs\x18\t \x03(\v2:.bountyhub.job.execution.v1.ResolveJobResponse.InputsEntryR\x06inputs\x126\n" +
+	"\brevision\x18\x05 \x01(\v2$.bountyhub.job.execution.v1.RevisionR\brevision\x12Q\n" +
+	"\x04vars\x18\x06 \x03(\v2=.bountyhub.job.execution.v1.CreateExecutionResponse.VarsEntryR\x04vars\x12Z\n" +
+	"\asecrets\x18\a \x03(\v2@.bountyhub.job.execution.v1.CreateExecutionResponse.SecretsEntryR\asecrets\x12N\n" +
+	"\x03env\x18\b \x03(\v2<.bountyhub.job.execution.v1.CreateExecutionResponse.EnvEntryR\x03env\x12W\n" +
+	"\x06inputs\x18\t \x03(\v2?.bountyhub.job.execution.v1.CreateExecutionResponse.InputsEntryR\x06inputs\x126\n" +
 	"\x05steps\x18\n" +
-	" \x03(\v2 .bountyhub.job.execution.v1.StepR\x05steps\x12h\n" +
-	"\x0escan_histories\x18\v \x03(\v2A.bountyhub.job.execution.v1.ResolveJobResponse.ScanHistoriesEntryR\rscanHistories\x1a7\n" +
+	" \x03(\v2 .bountyhub.job.execution.v1.StepR\x05steps\x12m\n" +
+	"\x0escan_histories\x18\v \x03(\v2F.bountyhub.job.execution.v1.CreateExecutionResponse.ScanHistoriesEntryR\rscanHistories\x1a7\n" +
 	"\tVarsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1a:\n" +
@@ -1196,11 +1460,12 @@ const file_services_job_execution_v1_proto_rawDesc = "" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
 	"\x05paths\x18\x02 \x03(\tR\x05paths\x12\x12\n" +
 	"\x04cond\x18\x03 \x01(\tR\x04cond\"\x0e\n" +
-	"\fTeardownStep\"E\n" +
+	"\fTeardownStep\"[\n" +
 	"\n" +
-	"InputValue\x12\x18\n" +
-	"\x06string\x18\x01 \x01(\tH\x00R\x06string\x12\x14\n" +
-	"\x04bool\x18\x02 \x01(\bH\x00R\x04boolB\a\n" +
+	"InputValue\x12#\n" +
+	"\fstring_value\x18\x01 \x01(\tH\x00R\vstringValue\x12\x1f\n" +
+	"\n" +
+	"bool_value\x18\x02 \x01(\bH\x00R\tboolValueB\a\n" +
 	"\x05value\"C\n" +
 	"\bScanMeta\x127\n" +
 	"\x04jobs\x18\x01 \x03(\v2#.bountyhub.job.execution.v1.JobMetaR\x04jobs\"\x95\x02\n" +
@@ -1213,123 +1478,147 @@ const file_services_job_execution_v1_proto_rawDesc = "" +
 	"\x05value\x18\x02 \x01(\v2(.bountyhub.job.execution.v1.ArtifactMetaR\x05value:\x028\x01\"L\n" +
 	"\fArtifactMeta\x12\x19\n" +
 	"\bhas_diff\x18\x01 \x01(\bR\ahasDiff\x12!\n" +
-	"\fis_available\x18\x02 \x01(\bR\visAvailable*v\n" +
+	"\fis_available\x18\x02 \x01(\bR\visAvailable*u\n" +
+	"\n" +
+	"StepStatus\x12\x1b\n" +
+	"\x17STEP_STATUS_UNSPECIFIED\x10\x00\x12\x19\n" +
+	"\x15STEP_STATUS_SUCCEEDED\x10\x01\x12\x16\n" +
+	"\x12STEP_STATUS_FAILED\x10\x02\x12\x17\n" +
+	"\x13STEP_STATUS_SKIPPED\x10\x03*|\n" +
+	"\vStepOutcome\x12\x1c\n" +
+	"\x18STEP_OUTCOME_UNSPECIFIED\x10\x00\x12\x1a\n" +
+	"\x16STEP_OUTCOME_SUCCEEDED\x10\x01\x12\x17\n" +
+	"\x13STEP_OUTCOME_FAILED\x10\x02\x12\x1a\n" +
+	"\x16STEP_OUTCOME_CANCELLED\x10\x03*w\n" +
 	"\n" +
 	"JobOutcome\x12\x1b\n" +
-	"\x17JOB_OUTCOME_UNSPECIFIED\x10\x00\x12\x17\n" +
-	"\x13JOB_OUTCOME_SUCCESS\x10\x01\x12\x17\n" +
-	"\x13JOB_OUTCOME_FAILURE\x10\x02\x12\x19\n" +
-	"\x15JOB_OUTCOME_CANCELLED\x10\x032\xbc\x02\n" +
-	"\x13JobExecutionService\x12\x92\x01\n" +
-	"\vRequestJobs\x12..bountyhub.job.execution.v1.RequestJobsRequest\x1a/.bountyhub.job.execution.v1.RequestJobsResponse\"\"\x82\xd3\xe4\x93\x02\x1c\"\x1a/v1/job-executions/request\x12\x8f\x01\n" +
-	"\n" +
-	"ResolveJob\x12-.bountyhub.job.execution.v1.ResolveJobRequest\x1a..bountyhub.job.execution.v1.ResolveJobResponse\"\"\x82\xd3\xe4\x93\x02\x1c\"\x1a/v1/job-executions/resolveBVZTgithub.com/bountyhub-org/bountyhub/internal/connectrpc/service/jobexecutionv1connectb\x06proto3"
+	"\x17JOB_OUTCOME_UNSPECIFIED\x10\x00\x12\x19\n" +
+	"\x15JOB_OUTCOME_SUCCEEDED\x10\x01\x12\x16\n" +
+	"\x12JOB_OUTCOME_FAILED\x10\x02\x12\x19\n" +
+	"\x15JOB_OUTCOME_CANCELLED\x10\x032\xc6\x02\n" +
+	"\x13JobExecutionService\x12\x96\x01\n" +
+	"\x0fCreateExecution\x122.bountyhub.job.execution.v1.CreateExecutionRequest\x1a3.bountyhub.job.execution.v1.CreateExecutionResponse\"\x1a\x82\xd3\xe4\x93\x02\x14\"\x12/v1/job-executions\x12\x95\x01\n" +
+	"\fStreamEvents\x12/.bountyhub.job.execution.v1.StreamEventsRequest\x1a0.bountyhub.job.execution.v1.StreamEventsResponse\" \x82\xd3\xe4\x93\x02\x1a\"\x18/v1/job-executions/event(\x01B;Z9github.com/bountyhub-org/runner/api/jobexecutionv1connectb\x06proto3"
 
 var (
-	file_services_job_execution_v1_proto_rawDescOnce sync.Once
-	file_services_job_execution_v1_proto_rawDescData []byte
+	file_job_execution_v1_proto_rawDescOnce sync.Once
+	file_job_execution_v1_proto_rawDescData []byte
 )
 
-func file_services_job_execution_v1_proto_rawDescGZIP() []byte {
-	file_services_job_execution_v1_proto_rawDescOnce.Do(func() {
-		file_services_job_execution_v1_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_services_job_execution_v1_proto_rawDesc), len(file_services_job_execution_v1_proto_rawDesc)))
+func file_job_execution_v1_proto_rawDescGZIP() []byte {
+	file_job_execution_v1_proto_rawDescOnce.Do(func() {
+		file_job_execution_v1_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_job_execution_v1_proto_rawDesc), len(file_job_execution_v1_proto_rawDesc)))
 	})
-	return file_services_job_execution_v1_proto_rawDescData
+	return file_job_execution_v1_proto_rawDescData
 }
 
-var file_services_job_execution_v1_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_services_job_execution_v1_proto_msgTypes = make([]protoimpl.MessageInfo, 24)
-var file_services_job_execution_v1_proto_goTypes = []any{
-	(JobOutcome)(0),             // 0: bountyhub.job.execution.v1.JobOutcome
-	(*RequestJobsRequest)(nil),  // 1: bountyhub.job.execution.v1.RequestJobsRequest
-	(*AssignedJob)(nil),         // 2: bountyhub.job.execution.v1.AssignedJob
-	(*RequestJobsResponse)(nil), // 3: bountyhub.job.execution.v1.RequestJobsResponse
-	(*ResolveJobRequest)(nil),   // 4: bountyhub.job.execution.v1.ResolveJobRequest
-	(*ResolveJobResponse)(nil),  // 5: bountyhub.job.execution.v1.ResolveJobResponse
-	(*Project)(nil),             // 6: bountyhub.job.execution.v1.Project
-	(*Workflow)(nil),            // 7: bountyhub.job.execution.v1.Workflow
-	(*Revision)(nil),            // 8: bountyhub.job.execution.v1.Revision
-	(*Step)(nil),                // 9: bountyhub.job.execution.v1.Step
-	(*SetupStep)(nil),           // 10: bountyhub.job.execution.v1.SetupStep
-	(*CommandStep)(nil),         // 11: bountyhub.job.execution.v1.CommandStep
-	(*ArtifactSteps)(nil),       // 12: bountyhub.job.execution.v1.ArtifactSteps
-	(*ArtifactStep)(nil),        // 13: bountyhub.job.execution.v1.ArtifactStep
-	(*TeardownStep)(nil),        // 14: bountyhub.job.execution.v1.TeardownStep
-	(*InputValue)(nil),          // 15: bountyhub.job.execution.v1.InputValue
-	(*ScanMeta)(nil),            // 16: bountyhub.job.execution.v1.ScanMeta
-	(*JobMeta)(nil),             // 17: bountyhub.job.execution.v1.JobMeta
-	(*ArtifactMeta)(nil),        // 18: bountyhub.job.execution.v1.ArtifactMeta
-	nil,                         // 19: bountyhub.job.execution.v1.ResolveJobResponse.VarsEntry
-	nil,                         // 20: bountyhub.job.execution.v1.ResolveJobResponse.SecretsEntry
-	nil,                         // 21: bountyhub.job.execution.v1.ResolveJobResponse.EnvEntry
-	nil,                         // 22: bountyhub.job.execution.v1.ResolveJobResponse.InputsEntry
-	nil,                         // 23: bountyhub.job.execution.v1.ResolveJobResponse.ScanHistoriesEntry
-	nil,                         // 24: bountyhub.job.execution.v1.JobMeta.ArtifactsEntry
+var file_job_execution_v1_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
+var file_job_execution_v1_proto_msgTypes = make([]protoimpl.MessageInfo, 26)
+var file_job_execution_v1_proto_goTypes = []any{
+	(StepStatus)(0),                 // 0: bountyhub.job.execution.v1.StepStatus
+	(StepOutcome)(0),                // 1: bountyhub.job.execution.v1.StepOutcome
+	(JobOutcome)(0),                 // 2: bountyhub.job.execution.v1.JobOutcome
+	(*StreamEventsRequest)(nil),     // 3: bountyhub.job.execution.v1.StreamEventsRequest
+	(*StreamEventsResponse)(nil),    // 4: bountyhub.job.execution.v1.StreamEventsResponse
+	(*JobEvent)(nil),                // 5: bountyhub.job.execution.v1.JobEvent
+	(*StepStarted)(nil),             // 6: bountyhub.job.execution.v1.StepStarted
+	(*StepFinished)(nil),            // 7: bountyhub.job.execution.v1.StepFinished
+	(*CreateExecutionRequest)(nil),  // 8: bountyhub.job.execution.v1.CreateExecutionRequest
+	(*CreateExecutionResponse)(nil), // 9: bountyhub.job.execution.v1.CreateExecutionResponse
+	(*Project)(nil),                 // 10: bountyhub.job.execution.v1.Project
+	(*Workflow)(nil),                // 11: bountyhub.job.execution.v1.Workflow
+	(*Revision)(nil),                // 12: bountyhub.job.execution.v1.Revision
+	(*Step)(nil),                    // 13: bountyhub.job.execution.v1.Step
+	(*SetupStep)(nil),               // 14: bountyhub.job.execution.v1.SetupStep
+	(*CommandStep)(nil),             // 15: bountyhub.job.execution.v1.CommandStep
+	(*ArtifactSteps)(nil),           // 16: bountyhub.job.execution.v1.ArtifactSteps
+	(*ArtifactStep)(nil),            // 17: bountyhub.job.execution.v1.ArtifactStep
+	(*TeardownStep)(nil),            // 18: bountyhub.job.execution.v1.TeardownStep
+	(*InputValue)(nil),              // 19: bountyhub.job.execution.v1.InputValue
+	(*ScanMeta)(nil),                // 20: bountyhub.job.execution.v1.ScanMeta
+	(*JobMeta)(nil),                 // 21: bountyhub.job.execution.v1.JobMeta
+	(*ArtifactMeta)(nil),            // 22: bountyhub.job.execution.v1.ArtifactMeta
+	nil,                             // 23: bountyhub.job.execution.v1.CreateExecutionResponse.VarsEntry
+	nil,                             // 24: bountyhub.job.execution.v1.CreateExecutionResponse.SecretsEntry
+	nil,                             // 25: bountyhub.job.execution.v1.CreateExecutionResponse.EnvEntry
+	nil,                             // 26: bountyhub.job.execution.v1.CreateExecutionResponse.InputsEntry
+	nil,                             // 27: bountyhub.job.execution.v1.CreateExecutionResponse.ScanHistoriesEntry
+	nil,                             // 28: bountyhub.job.execution.v1.JobMeta.ArtifactsEntry
+	(*timestamppb.Timestamp)(nil),   // 29: google.protobuf.Timestamp
 }
-var file_services_job_execution_v1_proto_depIdxs = []int32{
-	2,  // 0: bountyhub.job.execution.v1.RequestJobsResponse.jobs:type_name -> bountyhub.job.execution.v1.AssignedJob
-	6,  // 1: bountyhub.job.execution.v1.ResolveJobResponse.project:type_name -> bountyhub.job.execution.v1.Project
-	7,  // 2: bountyhub.job.execution.v1.ResolveJobResponse.workflow:type_name -> bountyhub.job.execution.v1.Workflow
-	8,  // 3: bountyhub.job.execution.v1.ResolveJobResponse.revision:type_name -> bountyhub.job.execution.v1.Revision
-	19, // 4: bountyhub.job.execution.v1.ResolveJobResponse.vars:type_name -> bountyhub.job.execution.v1.ResolveJobResponse.VarsEntry
-	20, // 5: bountyhub.job.execution.v1.ResolveJobResponse.secrets:type_name -> bountyhub.job.execution.v1.ResolveJobResponse.SecretsEntry
-	21, // 6: bountyhub.job.execution.v1.ResolveJobResponse.env:type_name -> bountyhub.job.execution.v1.ResolveJobResponse.EnvEntry
-	22, // 7: bountyhub.job.execution.v1.ResolveJobResponse.inputs:type_name -> bountyhub.job.execution.v1.ResolveJobResponse.InputsEntry
-	9,  // 8: bountyhub.job.execution.v1.ResolveJobResponse.steps:type_name -> bountyhub.job.execution.v1.Step
-	23, // 9: bountyhub.job.execution.v1.ResolveJobResponse.scan_histories:type_name -> bountyhub.job.execution.v1.ResolveJobResponse.ScanHistoriesEntry
-	10, // 10: bountyhub.job.execution.v1.Step.setup:type_name -> bountyhub.job.execution.v1.SetupStep
-	11, // 11: bountyhub.job.execution.v1.Step.command:type_name -> bountyhub.job.execution.v1.CommandStep
-	12, // 12: bountyhub.job.execution.v1.Step.artifact:type_name -> bountyhub.job.execution.v1.ArtifactSteps
-	14, // 13: bountyhub.job.execution.v1.Step.teardown:type_name -> bountyhub.job.execution.v1.TeardownStep
-	13, // 14: bountyhub.job.execution.v1.ArtifactSteps.artifacts:type_name -> bountyhub.job.execution.v1.ArtifactStep
-	17, // 15: bountyhub.job.execution.v1.ScanMeta.jobs:type_name -> bountyhub.job.execution.v1.JobMeta
-	0,  // 16: bountyhub.job.execution.v1.JobMeta.outcome:type_name -> bountyhub.job.execution.v1.JobOutcome
-	24, // 17: bountyhub.job.execution.v1.JobMeta.artifacts:type_name -> bountyhub.job.execution.v1.JobMeta.ArtifactsEntry
-	15, // 18: bountyhub.job.execution.v1.ResolveJobResponse.InputsEntry.value:type_name -> bountyhub.job.execution.v1.InputValue
-	16, // 19: bountyhub.job.execution.v1.ResolveJobResponse.ScanHistoriesEntry.value:type_name -> bountyhub.job.execution.v1.ScanMeta
-	18, // 20: bountyhub.job.execution.v1.JobMeta.ArtifactsEntry.value:type_name -> bountyhub.job.execution.v1.ArtifactMeta
-	1,  // 21: bountyhub.job.execution.v1.JobExecutionService.RequestJobs:input_type -> bountyhub.job.execution.v1.RequestJobsRequest
-	4,  // 22: bountyhub.job.execution.v1.JobExecutionService.ResolveJob:input_type -> bountyhub.job.execution.v1.ResolveJobRequest
-	3,  // 23: bountyhub.job.execution.v1.JobExecutionService.RequestJobs:output_type -> bountyhub.job.execution.v1.RequestJobsResponse
-	5,  // 24: bountyhub.job.execution.v1.JobExecutionService.ResolveJob:output_type -> bountyhub.job.execution.v1.ResolveJobResponse
-	23, // [23:25] is the sub-list for method output_type
-	21, // [21:23] is the sub-list for method input_type
-	21, // [21:21] is the sub-list for extension type_name
-	21, // [21:21] is the sub-list for extension extendee
-	0,  // [0:21] is the sub-list for field type_name
+var file_job_execution_v1_proto_depIdxs = []int32{
+	29, // 0: bountyhub.job.execution.v1.StreamEventsRequest.timestamp:type_name -> google.protobuf.Timestamp
+	5,  // 1: bountyhub.job.execution.v1.StreamEventsRequest.event:type_name -> bountyhub.job.execution.v1.JobEvent
+	6,  // 2: bountyhub.job.execution.v1.JobEvent.started:type_name -> bountyhub.job.execution.v1.StepStarted
+	7,  // 3: bountyhub.job.execution.v1.JobEvent.finished:type_name -> bountyhub.job.execution.v1.StepFinished
+	0,  // 4: bountyhub.job.execution.v1.StepFinished.status:type_name -> bountyhub.job.execution.v1.StepStatus
+	1,  // 5: bountyhub.job.execution.v1.StepFinished.outcome:type_name -> bountyhub.job.execution.v1.StepOutcome
+	10, // 6: bountyhub.job.execution.v1.CreateExecutionResponse.project:type_name -> bountyhub.job.execution.v1.Project
+	11, // 7: bountyhub.job.execution.v1.CreateExecutionResponse.workflow:type_name -> bountyhub.job.execution.v1.Workflow
+	12, // 8: bountyhub.job.execution.v1.CreateExecutionResponse.revision:type_name -> bountyhub.job.execution.v1.Revision
+	23, // 9: bountyhub.job.execution.v1.CreateExecutionResponse.vars:type_name -> bountyhub.job.execution.v1.CreateExecutionResponse.VarsEntry
+	24, // 10: bountyhub.job.execution.v1.CreateExecutionResponse.secrets:type_name -> bountyhub.job.execution.v1.CreateExecutionResponse.SecretsEntry
+	25, // 11: bountyhub.job.execution.v1.CreateExecutionResponse.env:type_name -> bountyhub.job.execution.v1.CreateExecutionResponse.EnvEntry
+	26, // 12: bountyhub.job.execution.v1.CreateExecutionResponse.inputs:type_name -> bountyhub.job.execution.v1.CreateExecutionResponse.InputsEntry
+	13, // 13: bountyhub.job.execution.v1.CreateExecutionResponse.steps:type_name -> bountyhub.job.execution.v1.Step
+	27, // 14: bountyhub.job.execution.v1.CreateExecutionResponse.scan_histories:type_name -> bountyhub.job.execution.v1.CreateExecutionResponse.ScanHistoriesEntry
+	14, // 15: bountyhub.job.execution.v1.Step.setup:type_name -> bountyhub.job.execution.v1.SetupStep
+	15, // 16: bountyhub.job.execution.v1.Step.command:type_name -> bountyhub.job.execution.v1.CommandStep
+	16, // 17: bountyhub.job.execution.v1.Step.artifact:type_name -> bountyhub.job.execution.v1.ArtifactSteps
+	18, // 18: bountyhub.job.execution.v1.Step.teardown:type_name -> bountyhub.job.execution.v1.TeardownStep
+	17, // 19: bountyhub.job.execution.v1.ArtifactSteps.artifacts:type_name -> bountyhub.job.execution.v1.ArtifactStep
+	21, // 20: bountyhub.job.execution.v1.ScanMeta.jobs:type_name -> bountyhub.job.execution.v1.JobMeta
+	2,  // 21: bountyhub.job.execution.v1.JobMeta.outcome:type_name -> bountyhub.job.execution.v1.JobOutcome
+	28, // 22: bountyhub.job.execution.v1.JobMeta.artifacts:type_name -> bountyhub.job.execution.v1.JobMeta.ArtifactsEntry
+	19, // 23: bountyhub.job.execution.v1.CreateExecutionResponse.InputsEntry.value:type_name -> bountyhub.job.execution.v1.InputValue
+	20, // 24: bountyhub.job.execution.v1.CreateExecutionResponse.ScanHistoriesEntry.value:type_name -> bountyhub.job.execution.v1.ScanMeta
+	22, // 25: bountyhub.job.execution.v1.JobMeta.ArtifactsEntry.value:type_name -> bountyhub.job.execution.v1.ArtifactMeta
+	8,  // 26: bountyhub.job.execution.v1.JobExecutionService.CreateExecution:input_type -> bountyhub.job.execution.v1.CreateExecutionRequest
+	3,  // 27: bountyhub.job.execution.v1.JobExecutionService.StreamEvents:input_type -> bountyhub.job.execution.v1.StreamEventsRequest
+	9,  // 28: bountyhub.job.execution.v1.JobExecutionService.CreateExecution:output_type -> bountyhub.job.execution.v1.CreateExecutionResponse
+	4,  // 29: bountyhub.job.execution.v1.JobExecutionService.StreamEvents:output_type -> bountyhub.job.execution.v1.StreamEventsResponse
+	28, // [28:30] is the sub-list for method output_type
+	26, // [26:28] is the sub-list for method input_type
+	26, // [26:26] is the sub-list for extension type_name
+	26, // [26:26] is the sub-list for extension extendee
+	0,  // [0:26] is the sub-list for field type_name
 }
 
-func init() { file_services_job_execution_v1_proto_init() }
-func file_services_job_execution_v1_proto_init() {
-	if File_services_job_execution_v1_proto != nil {
+func init() { file_job_execution_v1_proto_init() }
+func file_job_execution_v1_proto_init() {
+	if File_job_execution_v1_proto != nil {
 		return
 	}
-	file_services_job_execution_v1_proto_msgTypes[8].OneofWrappers = []any{
+	file_job_execution_v1_proto_msgTypes[2].OneofWrappers = []any{
+		(*JobEvent_Started)(nil),
+		(*JobEvent_Finished)(nil),
+	}
+	file_job_execution_v1_proto_msgTypes[10].OneofWrappers = []any{
 		(*Step_Setup)(nil),
 		(*Step_Command)(nil),
 		(*Step_Artifact)(nil),
 		(*Step_Teardown)(nil),
 	}
-	file_services_job_execution_v1_proto_msgTypes[14].OneofWrappers = []any{
-		(*InputValue_String_)(nil),
-		(*InputValue_Bool)(nil),
+	file_job_execution_v1_proto_msgTypes[16].OneofWrappers = []any{
+		(*InputValue_StringValue)(nil),
+		(*InputValue_BoolValue)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_services_job_execution_v1_proto_rawDesc), len(file_services_job_execution_v1_proto_rawDesc)),
-			NumEnums:      1,
-			NumMessages:   24,
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_job_execution_v1_proto_rawDesc), len(file_job_execution_v1_proto_rawDesc)),
+			NumEnums:      3,
+			NumMessages:   26,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
-		GoTypes:           file_services_job_execution_v1_proto_goTypes,
-		DependencyIndexes: file_services_job_execution_v1_proto_depIdxs,
-		EnumInfos:         file_services_job_execution_v1_proto_enumTypes,
-		MessageInfos:      file_services_job_execution_v1_proto_msgTypes,
+		GoTypes:           file_job_execution_v1_proto_goTypes,
+		DependencyIndexes: file_job_execution_v1_proto_depIdxs,
+		EnumInfos:         file_job_execution_v1_proto_enumTypes,
+		MessageInfos:      file_job_execution_v1_proto_msgTypes,
 	}.Build()
-	File_services_job_execution_v1_proto = out.File
-	file_services_job_execution_v1_proto_goTypes = nil
-	file_services_job_execution_v1_proto_depIdxs = nil
+	File_job_execution_v1_proto = out.File
+	file_job_execution_v1_proto_goTypes = nil
+	file_job_execution_v1_proto_depIdxs = nil
 }

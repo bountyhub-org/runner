@@ -1,0 +1,150 @@
+syntax = "proto3";
+
+package bountyhub.job.execution.v1;
+
+import "google/api/annotations.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/bountyhub-org/runner/api/jobexecutionv1connect";
+
+service JobExecutionService {
+  rpc CreateExecution(CreateExecutionRequest) returns (CreateExecutionResponse) {
+    option (google.api.http) = {post: "/v1/job-executions"};
+  }
+  rpc StreamEvents(stream StreamEventsRequest) returns (StreamEventsResponse) {
+    option (google.api.http) = {post: "/v1/job-executions/event"};
+  }
+}
+
+message StreamEventsRequest {
+  string job_id = 1;
+  string session = 2;
+  uint64 sequence = 3;
+  google.protobuf.Timestamp timestamp = 4;
+  JobEvent event = 5;
+}
+
+message StreamEventsResponse {}
+
+message JobEvent {
+  oneof event {
+    StepStarted started = 1;
+    StepFinished finished = 2;
+  }
+}
+
+message StepStarted {
+  string id = 1;
+}
+
+message StepFinished {
+  string id = 1;
+  StepStatus status = 3;
+  StepOutcome outcome = 4;
+}
+
+enum StepStatus {
+  STEP_STATUS_UNSPECIFIED = 0;
+  STEP_STATUS_SUCCEEDED = 1;
+  STEP_STATUS_FAILED = 2;
+  STEP_STATUS_SKIPPED = 3;
+}
+
+enum StepOutcome {
+  STEP_OUTCOME_UNSPECIFIED = 0;
+  STEP_OUTCOME_SUCCEEDED = 1;
+  STEP_OUTCOME_FAILED = 2;
+  STEP_OUTCOME_CANCELLED = 3;
+}
+
+message CreateExecutionRequest {
+  string job_id = 1;
+  string session = 2;
+}
+
+message CreateExecutionResponse {
+  string job_id = 1;
+  string name = 2;
+  Project project = 3;
+  Workflow workflow = 4;
+  Revision revision = 5;
+  map<string, string> vars = 6;
+  map<string, string> secrets = 7;
+  map<string, string> env = 8;
+  map<string, InputValue> inputs = 9;
+  repeated Step steps = 10;
+  map<string, ScanMeta> scan_histories = 11;
+}
+
+message Project {
+  string id = 1;
+}
+
+message Workflow {
+  string id = 1;
+}
+
+message Revision {
+  string id = 1;
+}
+
+message Step {
+  oneof step {
+    SetupStep setup = 1;
+    CommandStep command = 2;
+    ArtifactSteps artifact = 3;
+    TeardownStep teardown = 4;
+  }
+}
+
+message SetupStep {}
+
+message CommandStep {
+  string run = 1;
+  string shell = 2;
+  string cond = 3;
+  bool allow_failure = 4;
+}
+
+message ArtifactSteps {
+  repeated ArtifactStep artifacts = 1;
+}
+
+message ArtifactStep {
+  string name = 1;
+  repeated string paths = 2;
+  string cond = 3;
+}
+
+message TeardownStep {}
+
+message InputValue {
+  oneof value {
+    string string_value = 1;
+    bool bool_value = 2;
+  }
+}
+
+message ScanMeta {
+  repeated JobMeta jobs = 1;
+}
+
+// Copy of bountyhub.job.v1.JobOutcome for use in JobExecutionService
+// without importing the entire job.proto
+enum JobOutcome {
+  JOB_OUTCOME_UNSPECIFIED = 0;
+  JOB_OUTCOME_SUCCEEDED = 1;
+  JOB_OUTCOME_FAILED = 2;
+  JOB_OUTCOME_CANCELLED = 3;
+}
+
+message JobMeta {
+  string id = 1;
+  JobOutcome outcome = 2;
+  map<string, ArtifactMeta> artifacts = 3;
+}
+
+message ArtifactMeta {
+  bool has_diff = 1;
+  bool is_available = 2;
+}

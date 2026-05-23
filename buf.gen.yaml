@@ -1,0 +1,17 @@
+version: v2
+
+plugins:
+  - local: protoc-gen-go
+    out: api
+    opt:
+      - paths=import
+      - module=github.com/bountyhub-org/runner/api
+  - local: protoc-gen-connect-go
+    out: api
+    opt:
+      - paths=import
+      - module=github.com/bountyhub-org/runner/api
+      - package_suffix
+
+managed:
+  enabled: false
