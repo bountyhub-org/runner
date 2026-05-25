@@ -1,0 +1,32 @@
+syntax = "proto3";
+
+package bountyhub.runner.registration.v1;
+
+import "google/api/annotations.proto";
+
+service RunnerRegistrationService {
+  rpc RegisterRunner(RegisterRunnerRequest) returns (RegisterRunnerResponse) {
+    option (google.api.http) = {
+      post: "/v1/runner-registrations/register"
+      body: "*"
+    };
+  }
+}
+
+message CreateRunnerRegistrationRequest {}
+
+message CreateRunnerRegistrationResponse {
+  string url = 1;
+  string token = 2;
+}
+
+message RegisterRunnerRequest {
+  string token = 1;
+  string name = 2;
+  string work_dir = 3;
+  bool replace = 4;
+}
+
+message RegisterRunnerResponse {
+  string token = 1;
+}

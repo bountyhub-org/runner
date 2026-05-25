@@ -35,12 +35,16 @@ const (
 	// JobAssignmentServiceAcquireJobsProcedure is the fully-qualified name of the
 	// JobAssignmentService's AcquireJobs RPC.
 	JobAssignmentServiceAcquireJobsProcedure = "/bountyhub.job.assignment.v1.JobAssignmentService/AcquireJobs"
+	// JobAssignmentServiceAcquireJobSessionsProcedure is the fully-qualified name of the
+	// JobAssignmentService's AcquireJobSessions RPC.
+	JobAssignmentServiceAcquireJobSessionsProcedure = "/bountyhub.job.assignment.v1.JobAssignmentService/AcquireJobSessions"
 )
 
 // JobAssignmentServiceClient is a client for the bountyhub.job.assignment.v1.JobAssignmentService
 // service.
 type JobAssignmentServiceClient interface {
 	AcquireJobs(context.Context, *connect.Request[AcquireJobsRequest]) (*connect.Response[AcquireJobsResponse], error)
+	AcquireJobSessions(context.Context, *connect.Request[AcquireJobSessionsRequest]) (*connect.Response[AcquireJobSessionsResponse], error)
 }
 
 // NewJobAssignmentServiceClient constructs a client for the
@@ -61,12 +65,19 @@ func NewJobAssignmentServiceClient(httpClient connect.HTTPClient, baseURL string
 			connect.WithSchema(jobAssignmentServiceMethods.ByName("AcquireJobs")),
 			connect.WithClientOptions(opts...),
 		),
+		acquireJobSessions: connect.NewClient[AcquireJobSessionsRequest, AcquireJobSessionsResponse](
+			httpClient,
+			baseURL+JobAssignmentServiceAcquireJobSessionsProcedure,
+			connect.WithSchema(jobAssignmentServiceMethods.ByName("AcquireJobSessions")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // jobAssignmentServiceClient implements JobAssignmentServiceClient.
 type jobAssignmentServiceClient struct {
-	acquireJobs *connect.Client[AcquireJobsRequest, AcquireJobsResponse]
+	acquireJobs        *connect.Client[AcquireJobsRequest, AcquireJobsResponse]
+	acquireJobSessions *connect.Client[AcquireJobSessionsRequest, AcquireJobSessionsResponse]
 }
 
 // AcquireJobs calls bountyhub.job.assignment.v1.JobAssignmentService.AcquireJobs.
@@ -74,10 +85,16 @@ func (c *jobAssignmentServiceClient) AcquireJobs(ctx context.Context, req *conne
 	return c.acquireJobs.CallUnary(ctx, req)
 }
 
+// AcquireJobSessions calls bountyhub.job.assignment.v1.JobAssignmentService.AcquireJobSessions.
+func (c *jobAssignmentServiceClient) AcquireJobSessions(ctx context.Context, req *connect.Request[AcquireJobSessionsRequest]) (*connect.Response[AcquireJobSessionsResponse], error) {
+	return c.acquireJobSessions.CallUnary(ctx, req)
+}
+
 // JobAssignmentServiceHandler is an implementation of the
 // bountyhub.job.assignment.v1.JobAssignmentService service.
 type JobAssignmentServiceHandler interface {
 	AcquireJobs(context.Context, *connect.Request[AcquireJobsRequest]) (*connect.Response[AcquireJobsResponse], error)
+	AcquireJobSessions(context.Context, *connect.Request[AcquireJobSessionsRequest]) (*connect.Response[AcquireJobSessionsResponse], error)
 }
 
 // NewJobAssignmentServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -93,10 +110,18 @@ func NewJobAssignmentServiceHandler(svc JobAssignmentServiceHandler, opts ...con
 		connect.WithSchema(jobAssignmentServiceMethods.ByName("AcquireJobs")),
 		connect.WithHandlerOptions(opts...),
 	)
+	jobAssignmentServiceAcquireJobSessionsHandler := connect.NewUnaryHandler(
+		JobAssignmentServiceAcquireJobSessionsProcedure,
+		svc.AcquireJobSessions,
+		connect.WithSchema(jobAssignmentServiceMethods.ByName("AcquireJobSessions")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/bountyhub.job.assignment.v1.JobAssignmentService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case JobAssignmentServiceAcquireJobsProcedure:
 			jobAssignmentServiceAcquireJobsHandler.ServeHTTP(w, r)
+		case JobAssignmentServiceAcquireJobSessionsProcedure:
+			jobAssignmentServiceAcquireJobSessionsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -108,4 +133,8 @@ type UnimplementedJobAssignmentServiceHandler struct{}
 
 func (UnimplementedJobAssignmentServiceHandler) AcquireJobs(context.Context, *connect.Request[AcquireJobsRequest]) (*connect.Response[AcquireJobsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("bountyhub.job.assignment.v1.JobAssignmentService.AcquireJobs is not implemented"))
+}
+
+func (UnimplementedJobAssignmentServiceHandler) AcquireJobSessions(context.Context, *connect.Request[AcquireJobSessionsRequest]) (*connect.Response[AcquireJobSessionsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("bountyhub.job.assignment.v1.JobAssignmentService.AcquireJobSessions is not implemented"))
 }

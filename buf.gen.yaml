@@ -22,3 +22,6 @@ managed:
     - file_option: go_package
       path: job_execution_v1.proto
       value: github.com/bountyhub-org/runner/api/jobexecutionv1connect
+    - file_option: go_package
+      path: runner_registration_v1.proto
+      value: github.com/bountyhub-org/runner/api/runnerregistrationv1connect

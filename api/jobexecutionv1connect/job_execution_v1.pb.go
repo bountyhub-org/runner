@@ -479,28 +479,27 @@ func (x *StepFinished) GetOutcome() StepOutcome {
 	return StepOutcome_STEP_OUTCOME_UNSPECIFIED
 }
 
-type GetExecutionPlanRequest struct {
+type AcquireExecutionRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	JobId         string                 `protobuf:"bytes,1,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
-	Session       string                 `protobuf:"bytes,2,opt,name=session,proto3" json:"session,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *GetExecutionPlanRequest) Reset() {
-	*x = GetExecutionPlanRequest{}
+func (x *AcquireExecutionRequest) Reset() {
+	*x = AcquireExecutionRequest{}
 	mi := &file_job_execution_v1_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *GetExecutionPlanRequest) String() string {
+func (x *AcquireExecutionRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*GetExecutionPlanRequest) ProtoMessage() {}
+func (*AcquireExecutionRequest) ProtoMessage() {}
 
-func (x *GetExecutionPlanRequest) ProtoReflect() protoreflect.Message {
+func (x *AcquireExecutionRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_job_execution_v1_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -512,26 +511,19 @@ func (x *GetExecutionPlanRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use GetExecutionPlanRequest.ProtoReflect.Descriptor instead.
-func (*GetExecutionPlanRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use AcquireExecutionRequest.ProtoReflect.Descriptor instead.
+func (*AcquireExecutionRequest) Descriptor() ([]byte, []int) {
 	return file_job_execution_v1_proto_rawDescGZIP(), []int{5}
 }
 
-func (x *GetExecutionPlanRequest) GetJobId() string {
+func (x *AcquireExecutionRequest) GetJobId() string {
 	if x != nil {
 		return x.JobId
 	}
 	return ""
 }
 
-func (x *GetExecutionPlanRequest) GetSession() string {
-	if x != nil {
-		return x.Session
-	}
-	return ""
-}
-
-type GetExecutionPlanRsponse struct {
+type AcquireExecutionResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	JobId         string                 `protobuf:"bytes,1,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
 	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
@@ -548,20 +540,20 @@ type GetExecutionPlanRsponse struct {
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *GetExecutionPlanRsponse) Reset() {
-	*x = GetExecutionPlanRsponse{}
+func (x *AcquireExecutionResponse) Reset() {
+	*x = AcquireExecutionResponse{}
 	mi := &file_job_execution_v1_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *GetExecutionPlanRsponse) String() string {
+func (x *AcquireExecutionResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*GetExecutionPlanRsponse) ProtoMessage() {}
+func (*AcquireExecutionResponse) ProtoMessage() {}
 
-func (x *GetExecutionPlanRsponse) ProtoReflect() protoreflect.Message {
+func (x *AcquireExecutionResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_job_execution_v1_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -573,82 +565,82 @@ func (x *GetExecutionPlanRsponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use GetExecutionPlanRsponse.ProtoReflect.Descriptor instead.
-func (*GetExecutionPlanRsponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use AcquireExecutionResponse.ProtoReflect.Descriptor instead.
+func (*AcquireExecutionResponse) Descriptor() ([]byte, []int) {
 	return file_job_execution_v1_proto_rawDescGZIP(), []int{6}
 }
 
-func (x *GetExecutionPlanRsponse) GetJobId() string {
+func (x *AcquireExecutionResponse) GetJobId() string {
 	if x != nil {
 		return x.JobId
 	}
 	return ""
 }
 
-func (x *GetExecutionPlanRsponse) GetName() string {
+func (x *AcquireExecutionResponse) GetName() string {
 	if x != nil {
 		return x.Name
 	}
 	return ""
 }
 
-func (x *GetExecutionPlanRsponse) GetProject() *Project {
+func (x *AcquireExecutionResponse) GetProject() *Project {
 	if x != nil {
 		return x.Project
 	}
 	return nil
 }
 
-func (x *GetExecutionPlanRsponse) GetWorkflow() *Workflow {
+func (x *AcquireExecutionResponse) GetWorkflow() *Workflow {
 	if x != nil {
 		return x.Workflow
 	}
 	return nil
 }
 
-func (x *GetExecutionPlanRsponse) GetRevision() *Revision {
+func (x *AcquireExecutionResponse) GetRevision() *Revision {
 	if x != nil {
 		return x.Revision
 	}
 	return nil
 }
 
-func (x *GetExecutionPlanRsponse) GetVars() map[string]string {
+func (x *AcquireExecutionResponse) GetVars() map[string]string {
 	if x != nil {
 		return x.Vars
 	}
 	return nil
 }
 
-func (x *GetExecutionPlanRsponse) GetSecrets() map[string]string {
+func (x *AcquireExecutionResponse) GetSecrets() map[string]string {
 	if x != nil {
 		return x.Secrets
 	}
 	return nil
 }
 
-func (x *GetExecutionPlanRsponse) GetEnv() map[string]string {
+func (x *AcquireExecutionResponse) GetEnv() map[string]string {
 	if x != nil {
 		return x.Env
 	}
 	return nil
 }
 
-func (x *GetExecutionPlanRsponse) GetInputs() map[string]*InputValue {
+func (x *AcquireExecutionResponse) GetInputs() map[string]*InputValue {
 	if x != nil {
 		return x.Inputs
 	}
 	return nil
 }
 
-func (x *GetExecutionPlanRsponse) GetSteps() []*Step {
+func (x *AcquireExecutionResponse) GetSteps() []*Step {
 	if x != nil {
 		return x.Steps
 	}
 	return nil
 }
 
-func (x *GetExecutionPlanRsponse) GetScanHistories() map[string]*ScanMeta {
+func (x *AcquireExecutionResponse) GetScanHistories() map[string]*ScanMeta {
 	if x != nil {
 		return x.ScanHistories
 	}
@@ -1404,23 +1396,22 @@ const file_job_execution_v1_proto_rawDesc = "" +
 	"\fStepFinished\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12>\n" +
 	"\x06status\x18\x03 \x01(\x0e2&.bountyhub.job.execution.v1.StepStatusR\x06status\x12A\n" +
-	"\aoutcome\x18\x04 \x01(\x0e2'.bountyhub.job.execution.v1.StepOutcomeR\aoutcome\"J\n" +
-	"\x17GetExecutionPlanRequest\x12\x15\n" +
-	"\x06job_id\x18\x01 \x01(\tR\x05jobId\x12\x18\n" +
-	"\asession\x18\x02 \x01(\tR\asession\"\xfe\b\n" +
-	"\x17GetExecutionPlanRsponse\x12\x15\n" +
+	"\aoutcome\x18\x04 \x01(\x0e2'.bountyhub.job.execution.v1.StepOutcomeR\aoutcome\"0\n" +
+	"\x17AcquireExecutionRequest\x12\x15\n" +
+	"\x06job_id\x18\x01 \x01(\tR\x05jobId\"\x84\t\n" +
+	"\x18AcquireExecutionResponse\x12\x15\n" +
 	"\x06job_id\x18\x01 \x01(\tR\x05jobId\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12=\n" +
 	"\aproject\x18\x03 \x01(\v2#.bountyhub.job.execution.v1.ProjectR\aproject\x12@\n" +
 	"\bworkflow\x18\x04 \x01(\v2$.bountyhub.job.execution.v1.WorkflowR\bworkflow\x12@\n" +
-	"\brevision\x18\x05 \x01(\v2$.bountyhub.job.execution.v1.RevisionR\brevision\x12Q\n" +
-	"\x04vars\x18\x06 \x03(\v2=.bountyhub.job.execution.v1.GetExecutionPlanRsponse.VarsEntryR\x04vars\x12Z\n" +
-	"\asecrets\x18\a \x03(\v2@.bountyhub.job.execution.v1.GetExecutionPlanRsponse.SecretsEntryR\asecrets\x12N\n" +
-	"\x03env\x18\b \x03(\v2<.bountyhub.job.execution.v1.GetExecutionPlanRsponse.EnvEntryR\x03env\x12W\n" +
-	"\x06inputs\x18\t \x03(\v2?.bountyhub.job.execution.v1.GetExecutionPlanRsponse.InputsEntryR\x06inputs\x126\n" +
+	"\brevision\x18\x05 \x01(\v2$.bountyhub.job.execution.v1.RevisionR\brevision\x12R\n" +
+	"\x04vars\x18\x06 \x03(\v2>.bountyhub.job.execution.v1.AcquireExecutionResponse.VarsEntryR\x04vars\x12[\n" +
+	"\asecrets\x18\a \x03(\v2A.bountyhub.job.execution.v1.AcquireExecutionResponse.SecretsEntryR\asecrets\x12O\n" +
+	"\x03env\x18\b \x03(\v2=.bountyhub.job.execution.v1.AcquireExecutionResponse.EnvEntryR\x03env\x12X\n" +
+	"\x06inputs\x18\t \x03(\v2@.bountyhub.job.execution.v1.AcquireExecutionResponse.InputsEntryR\x06inputs\x126\n" +
 	"\x05steps\x18\n" +
-	" \x03(\v2 .bountyhub.job.execution.v1.StepR\x05steps\x12m\n" +
-	"\x0escan_histories\x18\v \x03(\v2F.bountyhub.job.execution.v1.GetExecutionPlanRsponse.ScanHistoriesEntryR\rscanHistories\x1a7\n" +
+	" \x03(\v2 .bountyhub.job.execution.v1.StepR\x05steps\x12n\n" +
+	"\x0escan_histories\x18\v \x03(\v2G.bountyhub.job.execution.v1.AcquireExecutionResponse.ScanHistoriesEntryR\rscanHistories\x1a7\n" +
 	"\tVarsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1a:\n" +
@@ -1495,9 +1486,9 @@ const file_job_execution_v1_proto_rawDesc = "" +
 	"\x17JOB_OUTCOME_UNSPECIFIED\x10\x00\x12\x19\n" +
 	"\x15JOB_OUTCOME_SUCCEEDED\x10\x01\x12\x16\n" +
 	"\x12JOB_OUTCOME_FAILED\x10\x02\x12\x19\n" +
-	"\x15JOB_OUTCOME_CANCELLED\x10\x032\xe0\x02\n" +
-	"\x13JobExecutionService\x12\xa6\x01\n" +
-	"\x10GetExecutionPlan\x123.bountyhub.job.execution.v1.GetExecutionPlanRequest\x1a3.bountyhub.job.execution.v1.GetExecutionPlanRsponse\"(\x82\xd3\xe4\x93\x02\"\" /v1/jobs/{job_id}/execution/plan\x12\x9f\x01\n" +
+	"\x15JOB_OUTCOME_CANCELLED\x10\x032\xe4\x02\n" +
+	"\x13JobExecutionService\x12\xaa\x01\n" +
+	"\x10AcquireExecution\x123.bountyhub.job.execution.v1.AcquireExecutionRequest\x1a4.bountyhub.job.execution.v1.AcquireExecutionResponse\"+\x82\xd3\xe4\x93\x02%\"#/v1/jobs/{job_id}/execution/acquire\x12\x9f\x01\n" +
 	"\fStreamEvents\x12/.bountyhub.job.execution.v1.StreamEventsRequest\x1a0.bountyhub.job.execution.v1.StreamEventsResponse\"*\x82\xd3\xe4\x93\x02$\"\"/v1/jobs/{job_id}/execution/events(\x01B\xfb\x01\n" +
 	"\x1ecom.bountyhub.job.execution.v1B\x13JobExecutionV1ProtoP\x01Z9github.com/bountyhub-org/runner/api/jobexecutionv1connect\xa2\x02\x03BJE\xaa\x02\x1aBountyhub.Job.Execution.V1\xca\x02\x1aBountyhub\\Job\\Execution\\V1\xe2\x02&Bountyhub\\Job\\Execution\\V1\\GPBMetadata\xea\x02\x1dBountyhub::Job::Execution::V1b\x06proto3"
 
@@ -1516,36 +1507,36 @@ func file_job_execution_v1_proto_rawDescGZIP() []byte {
 var file_job_execution_v1_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
 var file_job_execution_v1_proto_msgTypes = make([]protoimpl.MessageInfo, 26)
 var file_job_execution_v1_proto_goTypes = []any{
-	(StepStatus)(0),                 // 0: bountyhub.job.execution.v1.StepStatus
-	(StepOutcome)(0),                // 1: bountyhub.job.execution.v1.StepOutcome
-	(JobOutcome)(0),                 // 2: bountyhub.job.execution.v1.JobOutcome
-	(*StreamEventsRequest)(nil),     // 3: bountyhub.job.execution.v1.StreamEventsRequest
-	(*StreamEventsResponse)(nil),    // 4: bountyhub.job.execution.v1.StreamEventsResponse
-	(*JobEvent)(nil),                // 5: bountyhub.job.execution.v1.JobEvent
-	(*StepStarted)(nil),             // 6: bountyhub.job.execution.v1.StepStarted
-	(*StepFinished)(nil),            // 7: bountyhub.job.execution.v1.StepFinished
-	(*GetExecutionPlanRequest)(nil), // 8: bountyhub.job.execution.v1.GetExecutionPlanRequest
-	(*GetExecutionPlanRsponse)(nil), // 9: bountyhub.job.execution.v1.GetExecutionPlanRsponse
-	(*Project)(nil),                 // 10: bountyhub.job.execution.v1.Project
-	(*Workflow)(nil),                // 11: bountyhub.job.execution.v1.Workflow
-	(*Revision)(nil),                // 12: bountyhub.job.execution.v1.Revision
-	(*Step)(nil),                    // 13: bountyhub.job.execution.v1.Step
-	(*SetupStep)(nil),               // 14: bountyhub.job.execution.v1.SetupStep
-	(*CommandStep)(nil),             // 15: bountyhub.job.execution.v1.CommandStep
-	(*ArtifactSteps)(nil),           // 16: bountyhub.job.execution.v1.ArtifactSteps
-	(*ArtifactStep)(nil),            // 17: bountyhub.job.execution.v1.ArtifactStep
-	(*TeardownStep)(nil),            // 18: bountyhub.job.execution.v1.TeardownStep
-	(*InputValue)(nil),              // 19: bountyhub.job.execution.v1.InputValue
-	(*ScanMeta)(nil),                // 20: bountyhub.job.execution.v1.ScanMeta
-	(*JobMeta)(nil),                 // 21: bountyhub.job.execution.v1.JobMeta
-	(*ArtifactMeta)(nil),            // 22: bountyhub.job.execution.v1.ArtifactMeta
-	nil,                             // 23: bountyhub.job.execution.v1.GetExecutionPlanRsponse.VarsEntry
-	nil,                             // 24: bountyhub.job.execution.v1.GetExecutionPlanRsponse.SecretsEntry
-	nil,                             // 25: bountyhub.job.execution.v1.GetExecutionPlanRsponse.EnvEntry
-	nil,                             // 26: bountyhub.job.execution.v1.GetExecutionPlanRsponse.InputsEntry
-	nil,                             // 27: bountyhub.job.execution.v1.GetExecutionPlanRsponse.ScanHistoriesEntry
-	nil,                             // 28: bountyhub.job.execution.v1.JobMeta.ArtifactsEntry
-	(*timestamppb.Timestamp)(nil),   // 29: google.protobuf.Timestamp
+	(StepStatus)(0),                  // 0: bountyhub.job.execution.v1.StepStatus
+	(StepOutcome)(0),                 // 1: bountyhub.job.execution.v1.StepOutcome
+	(JobOutcome)(0),                  // 2: bountyhub.job.execution.v1.JobOutcome
+	(*StreamEventsRequest)(nil),      // 3: bountyhub.job.execution.v1.StreamEventsRequest
+	(*StreamEventsResponse)(nil),     // 4: bountyhub.job.execution.v1.StreamEventsResponse
+	(*JobEvent)(nil),                 // 5: bountyhub.job.execution.v1.JobEvent
+	(*StepStarted)(nil),              // 6: bountyhub.job.execution.v1.StepStarted
+	(*StepFinished)(nil),             // 7: bountyhub.job.execution.v1.StepFinished
+	(*AcquireExecutionRequest)(nil),  // 8: bountyhub.job.execution.v1.AcquireExecutionRequest
+	(*AcquireExecutionResponse)(nil), // 9: bountyhub.job.execution.v1.AcquireExecutionResponse
+	(*Project)(nil),                  // 10: bountyhub.job.execution.v1.Project
+	(*Workflow)(nil),                 // 11: bountyhub.job.execution.v1.Workflow
+	(*Revision)(nil),                 // 12: bountyhub.job.execution.v1.Revision
+	(*Step)(nil),                     // 13: bountyhub.job.execution.v1.Step
+	(*SetupStep)(nil),                // 14: bountyhub.job.execution.v1.SetupStep
+	(*CommandStep)(nil),              // 15: bountyhub.job.execution.v1.CommandStep
+	(*ArtifactSteps)(nil),            // 16: bountyhub.job.execution.v1.ArtifactSteps
+	(*ArtifactStep)(nil),             // 17: bountyhub.job.execution.v1.ArtifactStep
+	(*TeardownStep)(nil),             // 18: bountyhub.job.execution.v1.TeardownStep
+	(*InputValue)(nil),               // 19: bountyhub.job.execution.v1.InputValue
+	(*ScanMeta)(nil),                 // 20: bountyhub.job.execution.v1.ScanMeta
+	(*JobMeta)(nil),                  // 21: bountyhub.job.execution.v1.JobMeta
+	(*ArtifactMeta)(nil),             // 22: bountyhub.job.execution.v1.ArtifactMeta
+	nil,                              // 23: bountyhub.job.execution.v1.AcquireExecutionResponse.VarsEntry
+	nil,                              // 24: bountyhub.job.execution.v1.AcquireExecutionResponse.SecretsEntry
+	nil,                              // 25: bountyhub.job.execution.v1.AcquireExecutionResponse.EnvEntry
+	nil,                              // 26: bountyhub.job.execution.v1.AcquireExecutionResponse.InputsEntry
+	nil,                              // 27: bountyhub.job.execution.v1.AcquireExecutionResponse.ScanHistoriesEntry
+	nil,                              // 28: bountyhub.job.execution.v1.JobMeta.ArtifactsEntry
+	(*timestamppb.Timestamp)(nil),    // 29: google.protobuf.Timestamp
 }
 var file_job_execution_v1_proto_depIdxs = []int32{
 	29, // 0: bountyhub.job.execution.v1.StreamEventsRequest.timestamp:type_name -> google.protobuf.Timestamp
@@ -1554,15 +1545,15 @@ var file_job_execution_v1_proto_depIdxs = []int32{
 	7,  // 3: bountyhub.job.execution.v1.JobEvent.finished:type_name -> bountyhub.job.execution.v1.StepFinished
 	0,  // 4: bountyhub.job.execution.v1.StepFinished.status:type_name -> bountyhub.job.execution.v1.StepStatus
 	1,  // 5: bountyhub.job.execution.v1.StepFinished.outcome:type_name -> bountyhub.job.execution.v1.StepOutcome
-	10, // 6: bountyhub.job.execution.v1.GetExecutionPlanRsponse.project:type_name -> bountyhub.job.execution.v1.Project
-	11, // 7: bountyhub.job.execution.v1.GetExecutionPlanRsponse.workflow:type_name -> bountyhub.job.execution.v1.Workflow
-	12, // 8: bountyhub.job.execution.v1.GetExecutionPlanRsponse.revision:type_name -> bountyhub.job.execution.v1.Revision
-	23, // 9: bountyhub.job.execution.v1.GetExecutionPlanRsponse.vars:type_name -> bountyhub.job.execution.v1.GetExecutionPlanRsponse.VarsEntry
-	24, // 10: bountyhub.job.execution.v1.GetExecutionPlanRsponse.secrets:type_name -> bountyhub.job.execution.v1.GetExecutionPlanRsponse.SecretsEntry
-	25, // 11: bountyhub.job.execution.v1.GetExecutionPlanRsponse.env:type_name -> bountyhub.job.execution.v1.GetExecutionPlanRsponse.EnvEntry
-	26, // 12: bountyhub.job.execution.v1.GetExecutionPlanRsponse.inputs:type_name -> bountyhub.job.execution.v1.GetExecutionPlanRsponse.InputsEntry
-	13, // 13: bountyhub.job.execution.v1.GetExecutionPlanRsponse.steps:type_name -> bountyhub.job.execution.v1.Step
-	27, // 14: bountyhub.job.execution.v1.GetExecutionPlanRsponse.scan_histories:type_name -> bountyhub.job.execution.v1.GetExecutionPlanRsponse.ScanHistoriesEntry
+	10, // 6: bountyhub.job.execution.v1.AcquireExecutionResponse.project:type_name -> bountyhub.job.execution.v1.Project
+	11, // 7: bountyhub.job.execution.v1.AcquireExecutionResponse.workflow:type_name -> bountyhub.job.execution.v1.Workflow
+	12, // 8: bountyhub.job.execution.v1.AcquireExecutionResponse.revision:type_name -> bountyhub.job.execution.v1.Revision
+	23, // 9: bountyhub.job.execution.v1.AcquireExecutionResponse.vars:type_name -> bountyhub.job.execution.v1.AcquireExecutionResponse.VarsEntry
+	24, // 10: bountyhub.job.execution.v1.AcquireExecutionResponse.secrets:type_name -> bountyhub.job.execution.v1.AcquireExecutionResponse.SecretsEntry
+	25, // 11: bountyhub.job.execution.v1.AcquireExecutionResponse.env:type_name -> bountyhub.job.execution.v1.AcquireExecutionResponse.EnvEntry
+	26, // 12: bountyhub.job.execution.v1.AcquireExecutionResponse.inputs:type_name -> bountyhub.job.execution.v1.AcquireExecutionResponse.InputsEntry
+	13, // 13: bountyhub.job.execution.v1.AcquireExecutionResponse.steps:type_name -> bountyhub.job.execution.v1.Step
+	27, // 14: bountyhub.job.execution.v1.AcquireExecutionResponse.scan_histories:type_name -> bountyhub.job.execution.v1.AcquireExecutionResponse.ScanHistoriesEntry
 	14, // 15: bountyhub.job.execution.v1.Step.setup:type_name -> bountyhub.job.execution.v1.SetupStep
 	15, // 16: bountyhub.job.execution.v1.Step.command:type_name -> bountyhub.job.execution.v1.CommandStep
 	16, // 17: bountyhub.job.execution.v1.Step.artifact:type_name -> bountyhub.job.execution.v1.ArtifactSteps
@@ -1571,12 +1562,12 @@ var file_job_execution_v1_proto_depIdxs = []int32{
 	21, // 20: bountyhub.job.execution.v1.ScanMeta.jobs:type_name -> bountyhub.job.execution.v1.JobMeta
 	2,  // 21: bountyhub.job.execution.v1.JobMeta.outcome:type_name -> bountyhub.job.execution.v1.JobOutcome
 	28, // 22: bountyhub.job.execution.v1.JobMeta.artifacts:type_name -> bountyhub.job.execution.v1.JobMeta.ArtifactsEntry
-	19, // 23: bountyhub.job.execution.v1.GetExecutionPlanRsponse.InputsEntry.value:type_name -> bountyhub.job.execution.v1.InputValue
-	20, // 24: bountyhub.job.execution.v1.GetExecutionPlanRsponse.ScanHistoriesEntry.value:type_name -> bountyhub.job.execution.v1.ScanMeta
+	19, // 23: bountyhub.job.execution.v1.AcquireExecutionResponse.InputsEntry.value:type_name -> bountyhub.job.execution.v1.InputValue
+	20, // 24: bountyhub.job.execution.v1.AcquireExecutionResponse.ScanHistoriesEntry.value:type_name -> bountyhub.job.execution.v1.ScanMeta
 	22, // 25: bountyhub.job.execution.v1.JobMeta.ArtifactsEntry.value:type_name -> bountyhub.job.execution.v1.ArtifactMeta
-	8,  // 26: bountyhub.job.execution.v1.JobExecutionService.GetExecutionPlan:input_type -> bountyhub.job.execution.v1.GetExecutionPlanRequest
+	8,  // 26: bountyhub.job.execution.v1.JobExecutionService.AcquireExecution:input_type -> bountyhub.job.execution.v1.AcquireExecutionRequest
 	3,  // 27: bountyhub.job.execution.v1.JobExecutionService.StreamEvents:input_type -> bountyhub.job.execution.v1.StreamEventsRequest
-	9,  // 28: bountyhub.job.execution.v1.JobExecutionService.GetExecutionPlan:output_type -> bountyhub.job.execution.v1.GetExecutionPlanRsponse
+	9,  // 28: bountyhub.job.execution.v1.JobExecutionService.AcquireExecution:output_type -> bountyhub.job.execution.v1.AcquireExecutionResponse
 	4,  // 29: bountyhub.job.execution.v1.JobExecutionService.StreamEvents:output_type -> bountyhub.job.execution.v1.StreamEventsResponse
 	28, // [28:30] is the sub-list for method output_type
 	26, // [26:28] is the sub-list for method input_type

@@ -10,6 +10,7 @@ import (
 	_ "google.golang.org/genproto/googleapis/api/annotations"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	durationpb "google.golang.org/protobuf/types/known/durationpb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -112,8 +113,7 @@ func (x *AcquireJobsResponse) GetAssignments() []*JobAssignment {
 
 type JobAssignment struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	JobId         string                 `protobuf:"bytes,2,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
-	Session       string                 `protobuf:"bytes,3,opt,name=session,proto3" json:"session,omitempty"`
+	JobId         string                 `protobuf:"bytes,1,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -155,9 +155,194 @@ func (x *JobAssignment) GetJobId() string {
 	return ""
 }
 
-func (x *JobAssignment) GetSession() string {
+type AcquireJobSessionsRequest struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	AcquireSessions []*AcquireJobSession   `protobuf:"bytes,1,rep,name=acquire_sessions,json=acquireSessions,proto3" json:"acquire_sessions,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *AcquireJobSessionsRequest) Reset() {
+	*x = AcquireJobSessionsRequest{}
+	mi := &file_job_assignment_v1_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AcquireJobSessionsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AcquireJobSessionsRequest) ProtoMessage() {}
+
+func (x *AcquireJobSessionsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_job_assignment_v1_proto_msgTypes[3]
 	if x != nil {
-		return x.Session
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AcquireJobSessionsRequest.ProtoReflect.Descriptor instead.
+func (*AcquireJobSessionsRequest) Descriptor() ([]byte, []int) {
+	return file_job_assignment_v1_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *AcquireJobSessionsRequest) GetAcquireSessions() []*AcquireJobSession {
+	if x != nil {
+		return x.AcquireSessions
+	}
+	return nil
+}
+
+type AcquireJobSession struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	JobId           string                 `protobuf:"bytes,1,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
+	SessionDuration *durationpb.Duration   `protobuf:"bytes,2,opt,name=session_duration,json=sessionDuration,proto3" json:"session_duration,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *AcquireJobSession) Reset() {
+	*x = AcquireJobSession{}
+	mi := &file_job_assignment_v1_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AcquireJobSession) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AcquireJobSession) ProtoMessage() {}
+
+func (x *AcquireJobSession) ProtoReflect() protoreflect.Message {
+	mi := &file_job_assignment_v1_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AcquireJobSession.ProtoReflect.Descriptor instead.
+func (*AcquireJobSession) Descriptor() ([]byte, []int) {
+	return file_job_assignment_v1_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *AcquireJobSession) GetJobId() string {
+	if x != nil {
+		return x.JobId
+	}
+	return ""
+}
+
+func (x *AcquireJobSession) GetSessionDuration() *durationpb.Duration {
+	if x != nil {
+		return x.SessionDuration
+	}
+	return nil
+}
+
+type AcquireJobSessionsResponse struct {
+	state         protoimpl.MessageState  `protogen:"open.v1"`
+	Assignments   []*JobSessionAssignment `protobuf:"bytes,1,rep,name=assignments,proto3" json:"assignments,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AcquireJobSessionsResponse) Reset() {
+	*x = AcquireJobSessionsResponse{}
+	mi := &file_job_assignment_v1_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AcquireJobSessionsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AcquireJobSessionsResponse) ProtoMessage() {}
+
+func (x *AcquireJobSessionsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_job_assignment_v1_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AcquireJobSessionsResponse.ProtoReflect.Descriptor instead.
+func (*AcquireJobSessionsResponse) Descriptor() ([]byte, []int) {
+	return file_job_assignment_v1_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *AcquireJobSessionsResponse) GetAssignments() []*JobSessionAssignment {
+	if x != nil {
+		return x.Assignments
+	}
+	return nil
+}
+
+type JobSessionAssignment struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	JobId         string                 `protobuf:"bytes,1,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
+	SessionId     string                 `protobuf:"bytes,2,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *JobSessionAssignment) Reset() {
+	*x = JobSessionAssignment{}
+	mi := &file_job_assignment_v1_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *JobSessionAssignment) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*JobSessionAssignment) ProtoMessage() {}
+
+func (x *JobSessionAssignment) ProtoReflect() protoreflect.Message {
+	mi := &file_job_assignment_v1_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use JobSessionAssignment.ProtoReflect.Descriptor instead.
+func (*JobSessionAssignment) Descriptor() ([]byte, []int) {
+	return file_job_assignment_v1_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *JobSessionAssignment) GetJobId() string {
+	if x != nil {
+		return x.JobId
+	}
+	return ""
+}
+
+func (x *JobSessionAssignment) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
 	}
 	return ""
 }
@@ -166,16 +351,27 @@ var File_job_assignment_v1_proto protoreflect.FileDescriptor
 
 const file_job_assignment_v1_proto_rawDesc = "" +
 	"\n" +
-	"\x17job_assignment_v1.proto\x12\x1bbountyhub.job.assignment.v1\x1a\x1cgoogle/api/annotations.proto\"0\n" +
+	"\x17job_assignment_v1.proto\x12\x1bbountyhub.job.assignment.v1\x1a\x1cgoogle/api/annotations.proto\x1a\x1egoogle/protobuf/duration.proto\"0\n" +
 	"\x12AcquireJobsRequest\x12\x1a\n" +
 	"\bcapacity\x18\x01 \x01(\rR\bcapacity\"c\n" +
 	"\x13AcquireJobsResponse\x12L\n" +
-	"\vassignments\x18\x01 \x03(\v2*.bountyhub.job.assignment.v1.JobAssignmentR\vassignments\"@\n" +
+	"\vassignments\x18\x01 \x03(\v2*.bountyhub.job.assignment.v1.JobAssignmentR\vassignments\"&\n" +
 	"\rJobAssignment\x12\x15\n" +
-	"\x06job_id\x18\x02 \x01(\tR\x05jobId\x12\x18\n" +
-	"\asession\x18\x03 \x01(\tR\asession2\xb2\x01\n" +
+	"\x06job_id\x18\x01 \x01(\tR\x05jobId\"v\n" +
+	"\x19AcquireJobSessionsRequest\x12Y\n" +
+	"\x10acquire_sessions\x18\x01 \x03(\v2..bountyhub.job.assignment.v1.AcquireJobSessionR\x0facquireSessions\"p\n" +
+	"\x11AcquireJobSession\x12\x15\n" +
+	"\x06job_id\x18\x01 \x01(\tR\x05jobId\x12D\n" +
+	"\x10session_duration\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\x0fsessionDuration\"q\n" +
+	"\x1aAcquireJobSessionsResponse\x12S\n" +
+	"\vassignments\x18\x01 \x03(\v21.bountyhub.job.assignment.v1.JobSessionAssignmentR\vassignments\"L\n" +
+	"\x14JobSessionAssignment\x12\x15\n" +
+	"\x06job_id\x18\x01 \x01(\tR\x05jobId\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x02 \x01(\tR\tsessionId2\xec\x02\n" +
 	"\x14JobAssignmentService\x12\x99\x01\n" +
-	"\vAcquireJobs\x12/.bountyhub.job.assignment.v1.AcquireJobsRequest\x1a0.bountyhub.job.assignment.v1.AcquireJobsResponse\"'\x82\xd3\xe4\x93\x02!:\x01*\"\x1c/v1/jobs/assignments/acquireB\x82\x02\n" +
+	"\vAcquireJobs\x12/.bountyhub.job.assignment.v1.AcquireJobsRequest\x1a0.bountyhub.job.assignment.v1.AcquireJobsResponse\"'\x82\xd3\xe4\x93\x02!:\x01*\"\x1c/v1/jobs/assignments/acquire\x12\xb7\x01\n" +
+	"\x12AcquireJobSessions\x126.bountyhub.job.assignment.v1.AcquireJobSessionsRequest\x1a7.bountyhub.job.assignment.v1.AcquireJobSessionsResponse\"0\x82\xd3\xe4\x93\x02*:\x01*\"%/v1/jobs/assignments/sessions/acquireB\x82\x02\n" +
 	"\x1fcom.bountyhub.job.assignment.v1B\x14JobAssignmentV1ProtoP\x01Z:github.com/bountyhub-org/runner/api/jobassignmentv1connect\xa2\x02\x03BJA\xaa\x02\x1bBountyhub.Job.Assignment.V1\xca\x02\x1bBountyhub\\Job\\Assignment\\V1\xe2\x02'Bountyhub\\Job\\Assignment\\V1\\GPBMetadata\xea\x02\x1eBountyhub::Job::Assignment::V1b\x06proto3"
 
 var (
@@ -190,21 +386,31 @@ func file_job_assignment_v1_proto_rawDescGZIP() []byte {
 	return file_job_assignment_v1_proto_rawDescData
 }
 
-var file_job_assignment_v1_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_job_assignment_v1_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
 var file_job_assignment_v1_proto_goTypes = []any{
-	(*AcquireJobsRequest)(nil),  // 0: bountyhub.job.assignment.v1.AcquireJobsRequest
-	(*AcquireJobsResponse)(nil), // 1: bountyhub.job.assignment.v1.AcquireJobsResponse
-	(*JobAssignment)(nil),       // 2: bountyhub.job.assignment.v1.JobAssignment
+	(*AcquireJobsRequest)(nil),         // 0: bountyhub.job.assignment.v1.AcquireJobsRequest
+	(*AcquireJobsResponse)(nil),        // 1: bountyhub.job.assignment.v1.AcquireJobsResponse
+	(*JobAssignment)(nil),              // 2: bountyhub.job.assignment.v1.JobAssignment
+	(*AcquireJobSessionsRequest)(nil),  // 3: bountyhub.job.assignment.v1.AcquireJobSessionsRequest
+	(*AcquireJobSession)(nil),          // 4: bountyhub.job.assignment.v1.AcquireJobSession
+	(*AcquireJobSessionsResponse)(nil), // 5: bountyhub.job.assignment.v1.AcquireJobSessionsResponse
+	(*JobSessionAssignment)(nil),       // 6: bountyhub.job.assignment.v1.JobSessionAssignment
+	(*durationpb.Duration)(nil),        // 7: google.protobuf.Duration
 }
 var file_job_assignment_v1_proto_depIdxs = []int32{
 	2, // 0: bountyhub.job.assignment.v1.AcquireJobsResponse.assignments:type_name -> bountyhub.job.assignment.v1.JobAssignment
-	0, // 1: bountyhub.job.assignment.v1.JobAssignmentService.AcquireJobs:input_type -> bountyhub.job.assignment.v1.AcquireJobsRequest
-	1, // 2: bountyhub.job.assignment.v1.JobAssignmentService.AcquireJobs:output_type -> bountyhub.job.assignment.v1.AcquireJobsResponse
-	2, // [2:3] is the sub-list for method output_type
-	1, // [1:2] is the sub-list for method input_type
-	1, // [1:1] is the sub-list for extension type_name
-	1, // [1:1] is the sub-list for extension extendee
-	0, // [0:1] is the sub-list for field type_name
+	4, // 1: bountyhub.job.assignment.v1.AcquireJobSessionsRequest.acquire_sessions:type_name -> bountyhub.job.assignment.v1.AcquireJobSession
+	7, // 2: bountyhub.job.assignment.v1.AcquireJobSession.session_duration:type_name -> google.protobuf.Duration
+	6, // 3: bountyhub.job.assignment.v1.AcquireJobSessionsResponse.assignments:type_name -> bountyhub.job.assignment.v1.JobSessionAssignment
+	0, // 4: bountyhub.job.assignment.v1.JobAssignmentService.AcquireJobs:input_type -> bountyhub.job.assignment.v1.AcquireJobsRequest
+	3, // 5: bountyhub.job.assignment.v1.JobAssignmentService.AcquireJobSessions:input_type -> bountyhub.job.assignment.v1.AcquireJobSessionsRequest
+	1, // 6: bountyhub.job.assignment.v1.JobAssignmentService.AcquireJobs:output_type -> bountyhub.job.assignment.v1.AcquireJobsResponse
+	5, // 7: bountyhub.job.assignment.v1.JobAssignmentService.AcquireJobSessions:output_type -> bountyhub.job.assignment.v1.AcquireJobSessionsResponse
+	6, // [6:8] is the sub-list for method output_type
+	4, // [4:6] is the sub-list for method input_type
+	4, // [4:4] is the sub-list for extension type_name
+	4, // [4:4] is the sub-list for extension extendee
+	0, // [0:4] is the sub-list for field type_name
 }
 
 func init() { file_job_assignment_v1_proto_init() }
@@ -218,7 +424,7 @@ func file_job_assignment_v1_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_job_assignment_v1_proto_rawDesc), len(file_job_assignment_v1_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   3,
+			NumMessages:   7,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

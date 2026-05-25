@@ -3,12 +3,18 @@ syntax = "proto3";
 package bountyhub.job.assignment.v1;
 
 import "google/api/annotations.proto";
-
+import "google/protobuf/duration.proto";
 
 service JobAssignmentService {
   rpc AcquireJobs(AcquireJobsRequest) returns (AcquireJobsResponse) {
     option (google.api.http) = {
       post: "/v1/jobs/assignments/acquire"
+      body: "*"
+    };
+  }
+  rpc AcquireJobSessions(AcquireJobSessionsRequest) returns (AcquireJobSessionsResponse) {
+    option (google.api.http) = {
+      post: "/v1/jobs/assignments/sessions/acquire"
       body: "*"
     };
   }
@@ -23,6 +29,23 @@ message AcquireJobsResponse {
 }
 
 message JobAssignment {
-  string job_id = 2;
-  string session = 3;
+  string job_id = 1;
+}
+
+message AcquireJobSessionsRequest {
+  repeated AcquireJobSession acquire_sessions = 1;
+}
+
+message AcquireJobSession {
+  string job_id = 1;
+  google.protobuf.Duration session_duration = 2;
+}
+
+message AcquireJobSessionsResponse {
+  repeated JobSessionAssignment assignments = 1;
+}
+
+message JobSessionAssignment {
+  string job_id = 1;
+  string session_id = 2;
 }
